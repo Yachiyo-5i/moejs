@@ -14,8 +14,8 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/Calcium-Ion/moejs/bench"
-	"github.com/Calcium-Ion/moejs/bench/engines"
+	"github.com/Yachiyo-5i/moejs/bench"
+	"github.com/Yachiyo-5i/moejs/bench/engines"
 )
 
 func main() {

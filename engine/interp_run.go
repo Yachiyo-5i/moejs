@@ -3,7 +3,7 @@ package engine
 import (
 	"math"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // errThrown is the in-frame throw marker: the thrown value travels in the

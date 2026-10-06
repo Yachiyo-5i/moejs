@@ -1,3 +1,6 @@
+> FORK — no upstream sync with Calcium-Ion/moejs.
+> Module path: github.com/Yachiyo-5i/moejs. Forked at 81508091e81452055003d1459f84c4323ca8303d.
+
 <div align="center">
 
 <img src="docs/assets/moejs-logo.svg" width="160" alt="moejs">
@@ -53,7 +56,7 @@ Sobek 和 moejs 一样是纯 Go 引擎，QuickJS 和 V8 通过 cgo 调用。测�
 ## 快速上手
 
 ```sh
-go get github.com/Calcium-Ion/moejs
+go get github.com/Yachiyo-5i/moejs
 ```
 
 需要 Go 1.25 或更高版本。moejs 只依赖标准库（测试用到 testify）。
@@ -69,7 +72,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Calcium-Ion/moejs"
+	"github.com/Yachiyo-5i/moejs"
 )
 
 const source = `
@@ -238,12 +241,12 @@ func main() {
 ```
 
 服务端照 `Plugin` 这样调用插件，每个请求的开销最小。从池里取一个运行时只是一次 channel 接收，新建运行时并加载最大的插件约需 71 µs。
-运行时池、模块图、值的转换、Promise 和错误的细节见[使用指南](docs/guide.zh_CN.md)，每个函数的说明见[包文档](https://pkg.go.dev/github.com/Calcium-Ion/moejs)。
+运行时池、模块图、值的转换、Promise 和错误的细节见[使用指南](docs/guide.zh_CN.md)，每个函数的说明见[包文档](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)。
 
 moejs 仓库里有一份按插件负载录制的 `default.pgo`。Go 只自动使用 main 包目录下的 profile，所以构建时要手动传入：
 
 ```sh
-go build -pgo="$(go list -m -f '{{.Dir}}' github.com/Calcium-Ion/moejs)/default.pgo" .
+go build -pgo="$(go list -m -f '{{.Dir}}' github.com/Yachiyo-5i/moejs)/default.pgo" .
 ```
 
 ## JavaScript 支持

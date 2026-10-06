@@ -8,8 +8,8 @@ import (
 	"sync"
 	"weak"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // Callee descriptions. A call of a value that is not callable names the

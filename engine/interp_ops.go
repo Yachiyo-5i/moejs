@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // Slow paths of the interpreter loop: inline-cache misses and fills, generic

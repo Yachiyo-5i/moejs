@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // Builtin file convention:

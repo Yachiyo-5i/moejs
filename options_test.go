@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Calcium-Ion/moejs"
-	"github.com/Calcium-Ion/moejs/engine"
+	"github.com/Yachiyo-5i/moejs"
+	"github.com/Yachiyo-5i/moejs/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

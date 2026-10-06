@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Calcium-Ion/moejs"
+	"github.com/Yachiyo-5i/moejs"
 )
 
 // MoejsOptions configures the native adapter.

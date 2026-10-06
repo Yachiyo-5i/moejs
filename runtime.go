@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Calcium-Ion/moejs/engine"
+	"github.com/Yachiyo-5i/moejs/engine"
 )
 
 // Options configures NewRuntime.

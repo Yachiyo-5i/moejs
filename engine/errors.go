@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // ErrorKind selects an Error constructor family.

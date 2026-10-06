@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/engine"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/engine"
 )
 
 // Importer is the host's side of import() and import.meta in the runtimes

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/compiler"
-	"github.com/Calcium-Ion/moejs/engine"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/compiler"
+	"github.com/Yachiyo-5i/moejs/engine"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // fixture is a module that tests import (a _FIXTURE.js file, or a test),

@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // Error is a compile-time failure with a source position.

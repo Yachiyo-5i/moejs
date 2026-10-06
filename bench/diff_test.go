@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Calcium-Ion/moejs/bench/engines"
+	"github.com/Yachiyo-5i/moejs/bench/engines"
 	"github.com/stretchr/testify/require"
 )
 

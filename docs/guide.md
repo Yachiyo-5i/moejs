@@ -1,6 +1,6 @@
 # moejs guide
 
-The [package documentation](https://pkg.go.dev/github.com/Calcium-Ion/moejs)
+The [package documentation](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)
 describes every function, and the [README](../README.md) has a complete
 example.
 

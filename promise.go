@@ -1,6 +1,6 @@
 package moejs
 
-import "github.com/Calcium-Ion/moejs/engine"
+import "github.com/Yachiyo-5i/moejs/engine"
 
 type (
 	// PromiseState is the state of a promise.

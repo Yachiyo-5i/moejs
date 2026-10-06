@@ -1,9 +1,9 @@
-module github.com/Calcium-Ion/moejs/bench
+module github.com/Yachiyo-5i/moejs/bench
 
 go 1.26.6
 
 require (
-	github.com/Calcium-Ion/moejs v0.0.0-00010101000000-000000000000
+	github.com/Yachiyo-5i/moejs v0.0.0-00010101000000-000000000000
 	github.com/buke/quickjs-go v0.7.7
 	github.com/grafana/sobek v0.0.0-20260708062710-267a0e055bb4
 	github.com/stretchr/testify v1.12.1
@@ -18,4 +18,4 @@ require (
 	golang.org/x/text v0.3.8 // indirect
 )
 
-replace github.com/Calcium-Ion/moejs => ../
+replace github.com/Yachiyo-5i/moejs => ../

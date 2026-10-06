@@ -8,7 +8,7 @@ import (
 	"time"
 	_ "time/tzdata" // the zone of a corpus program does not depend on the host
 
-	"github.com/Calcium-Ion/moejs/bench/engines"
+	"github.com/Yachiyo-5i/moejs/bench/engines"
 	"github.com/stretchr/testify/require"
 )
 

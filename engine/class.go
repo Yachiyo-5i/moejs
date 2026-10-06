@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Classes (ECMA-262 §15.7) compile to ordinary bytecode plus the ops below,
 // which sit after the interpreter's jump table and are dispatched from its

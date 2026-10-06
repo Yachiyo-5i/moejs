@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Async functions (ECMA-262 §27.7) suspend and resume the way generators do
 // (generator.go): the frame's register window is copied out at an Await and

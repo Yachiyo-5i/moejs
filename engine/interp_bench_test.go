@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
-	"github.com/Calcium-Ion/moejs/compiler"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/compiler"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // benchModule compiles and evaluates src in a fresh realm and returns the

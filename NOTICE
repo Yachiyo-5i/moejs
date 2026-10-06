@@ -1,0 +1,7 @@
+moejs
+Copyright the moejs authors (https://github.com/Calcium-Ion/moejs), licensed under Apache-2.0.
+
+This is a fork maintained at https://github.com/Yachiyo-5i/moejs.
+Modifications by Yachiyo-5i:
+- 2026-10: changed the Go module path from github.com/Calcium-Ion/moejs to
+  github.com/Yachiyo-5i/moejs in go.mod, bench/go.mod, all Go import paths and the docs.

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // bytecodeStubFunction is a minimal compiled-function template (an empty
 // body) used by tests of Call/Construct dispatch and IC allocation.

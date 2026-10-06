@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // The inline-cache census (build tag iccensus) counts, per IC site, the

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Generators (ECMA-262 §27.3, §27.5) run on the interpreter's register stack
 // like every bytecode function: no goroutine or Go stack is kept per

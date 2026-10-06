@@ -1,6 +1,6 @@
 # moejs 使用指南
 
-每个函数的说明见[包文档](https://pkg.go.dev/github.com/Calcium-Ion/moejs)，完整示例见 [README](../README.zh_CN.md)。
+每个函数的说明见[包文档](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)，完整示例见 [README](../README.zh_CN.md)。
 
 [English](guide.md)
 

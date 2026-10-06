@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/compiler"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/compiler"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // fuzzRunDeadline bounds one evaluation or call; the engine has no step

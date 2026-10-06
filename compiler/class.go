@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // Classes (ECMA-262 §15.7.14 ClassDefinitionEvaluation) compile to code in

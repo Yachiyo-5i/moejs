@@ -9,7 +9,7 @@ import (
 	"unsafe"
 	"weak"
 
-	"github.com/Calcium-Ion/moejs"
+	"github.com/Yachiyo-5i/moejs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

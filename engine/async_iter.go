@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Async iteration: for await and an async generator's yield* step their
 // iterator with ops that call, then check the awaited result, the await

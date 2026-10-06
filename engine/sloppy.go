@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Sloppy mode, script globals and with. The ops are off the interpreter's
 // jump table (asyncOp's default case): only sloppy code, script top

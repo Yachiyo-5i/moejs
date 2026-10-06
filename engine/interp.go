@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 	"weak"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // Interpreter entry points and per-realm interpreter state.

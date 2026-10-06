@@ -7,7 +7,7 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	"github.com/Calcium-Ion/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/bytecode"
 )
 
 // Module graphs (ECMA-262 §16.2.1.5 Cyclic Module Records).

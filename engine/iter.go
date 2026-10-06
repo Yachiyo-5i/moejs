@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // The iteration protocol (ES2025 §7.4.1-7.4.12) shared by the interpreter
 // (for-of, spread, array destructuring) and the builtins (Array.from,

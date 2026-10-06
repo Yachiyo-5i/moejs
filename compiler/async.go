@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"github.com/Calcium-Ion/moejs/bytecode"
-	"github.com/Calcium-Ion/moejs/syntax"
+	"github.com/Yachiyo-5i/moejs/bytecode"
+	"github.com/Yachiyo-5i/moejs/syntax"
 )
 
 // Async lowering. An async function body runs from AsyncStart, which

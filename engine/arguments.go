@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/Calcium-Ion/moejs/bytecode"
+import "github.com/Yachiyo-5i/moejs/bytecode"
 
 // Arguments objects. A function gets one only when its body or a nested
 // arrow references `arguments` (the compiler sets
