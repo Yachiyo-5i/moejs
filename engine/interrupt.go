@@ -8,14 +8,16 @@ type interruptPayload struct {
 
 // Interrupt requests that the running program stop. It is safe to call from
 // any goroutine; the interpreter observes the flag at loop back-edges and
-// function entry, natives through CheckInterrupt. The first payload wins:
-// a later Interrupt, including the allocation budget's, does not replace it.
+// function entry, natives through CheckInterrupt. A later Interrupt
+// replaces the payload.
 func (r *Realm) Interrupt(v any) {
-	r.interruptValue.CompareAndSwap(nil, &interruptPayload{v: v})
+	r.interruptValue.Store(&interruptPayload{v: v})
 	r.interruptFlag.Store(1)
 }
 
-// ClearInterrupt resets the interrupt flag and payload.
+// ClearInterrupt resets the interrupt flag and payload. It does not cancel
+// an allocation budget overrun of the running call: the next charge
+// interrupts again, and the outermost return reports the overrun.
 func (r *Realm) ClearInterrupt() {
 	r.interruptFlag.Store(0)
 	r.interruptValue.Store(nil)

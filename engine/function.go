@@ -408,8 +408,8 @@ func (r *Realm) CallObject(fn *Object, this Value, args []Value) (Value, error) 
 		res, err = r.callOther(fd, this, args)
 	}
 	r.callDepth--
-	if r.callDepth == 0 && r.jobsPending {
-		err = r.endJob(err)
+	if r.callDepth == 0 && (r.jobsPending || r.allocMax > 0) {
+		err = r.endOutermost(err)
 	}
 	return res, err
 }
@@ -467,8 +467,8 @@ func (r *Realm) Construct(fn Value, args []Value, newTarget *Object) (Value, err
 		res, err = constructFunction(r, f, fd, args, newTarget)
 	}
 	r.callDepth--
-	if r.callDepth == 0 && r.jobsPending {
-		err = r.endJob(err)
+	if r.callDepth == 0 && (r.jobsPending || r.allocMax > 0) {
+		err = r.endOutermost(err)
 	}
 	return res, err
 }

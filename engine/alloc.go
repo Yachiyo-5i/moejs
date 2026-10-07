@@ -75,11 +75,20 @@ func (r *Realm) chargeNote(n int64) {
 	_ = r.chargeSlow(n)
 }
 
+// chargeSlow records the first overrun of the outermost entry in
+// realmLazy.allocOverrun and interrupts. The overrun stays until the
+// outermost return: later charges fail without charging, and they interrupt
+// again when a host ClearInterrupt ran meanwhile. A pending host interrupt
+// fails the charge with its own payload.
+//
 //go:noinline
 func (r *Realm) chargeSlow(n int64) error {
-	// An interrupt already published, by the budget or by the host, keeps
-	// its payload. Later charges must not replace it or allocate another
-	// AllocLimitError, and the counter stays at the first overrun.
+	if l := r.lazy; l != nil && l.allocOverrun != nil {
+		if r.interruptFlag.Load() == 0 {
+			r.Interrupt(l.allocOverrun)
+		}
+		return r.CheckInterrupt()
+	}
 	if r.interruptFlag.Load() != 0 {
 		return r.CheckInterrupt()
 	}
@@ -93,27 +102,49 @@ func (r *Realm) chargeSlow(n int64) error {
 	if sum <= r.allocMax {
 		return nil
 	}
-	r.Interrupt(&AllocLimitError{Limit: r.allocMax, Used: used, Requested: n})
+	lim := &AllocLimitError{Limit: r.allocMax, Used: used, Requested: n}
+	r.lazyState().allocOverrun = lim
+	r.Interrupt(lim)
 	return r.CheckInterrupt()
 }
 
-// ConsumeAllocInterrupt returns the budget overrun published during the
-// outermost call, and clears it so the next call is not blamed for it.
-// A host interrupt is left pending. The realm's objects may be
-// half-updated after this error; discard the runtime.
-func (r *Realm) ConsumeAllocInterrupt() error {
-	if r.interruptFlag.Load() == 0 {
-		return nil
+// endOutermost ends the outermost call into the realm: it runs the jobs the
+// call queued, then reports a budget overrun of the call (allocMax > 0 only)
+// in place of the call's own result, a JavaScript throw included, and
+// clears the interrupt the overrun published so the next call is not blamed
+// for it. The realm's objects may be half-updated after an overrun; the host
+// discards the runtime.
+//
+//go:noinline
+func (r *Realm) endOutermost(err error) error {
+	if r.jobsPending {
+		err = r.endJob(err)
 	}
-	p := r.interruptValue.Load()
-	if p == nil {
-		return nil
+	if r.allocMax <= 0 {
+		return err
 	}
-	if _, ok := p.v.(*AllocLimitError); !ok {
-		return nil
+	return r.takeAllocOverrun(err)
+}
+
+// FinishOutermost is the end of an outermost host entry that neither holds
+// jobs nor calls a function (Runtime.FromGo, ParseJSON, and the fast paths of
+// Unmarshal and ToGoInto). Inside a call it returns err unchanged.
+func (r *Realm) FinishOutermost(err error) error {
+	if r.callDepth != 0 || r.allocMax <= 0 {
+		return err
 	}
+	return r.takeAllocOverrun(err)
+}
+
+func (r *Realm) takeAllocOverrun(err error) error {
+	l := r.lazy
+	if l == nil || l.allocOverrun == nil {
+		return err
+	}
+	lim := l.allocOverrun
+	l.allocOverrun = nil
 	r.ClearInterrupt()
-	return &InterruptedError{Value: p.v}
+	return &InterruptedError{Value: lim}
 }
 
 // SetAllocBudget installs n as the allocation budget and zeroes the counter.
@@ -125,6 +156,9 @@ func (r *Realm) SetAllocBudget(n int64) {
 	}
 	r.allocMax = n
 	r.allocUsed = 0
+	if r.lazy != nil {
+		r.lazy.allocOverrun = nil
+	}
 }
 
 // AllocatedBytes is the estimated bytes charged to the current or most

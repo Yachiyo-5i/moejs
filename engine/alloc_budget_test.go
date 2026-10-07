@@ -46,16 +46,31 @@ func TestAllocBudgetInterruptKeepsFirst(t *testing.T) {
 	r.Interrupt("timeout")
 	err = r.CheckInterrupt()
 	require.ErrorAs(t, err, &ie)
-	lim, ok := ie.Value.(*AllocLimitError)
-	require.True(t, ok)
-	require.Equal(t, int64(0), lim.Used)
+	require.Equal(t, "timeout", ie.Value)
+	var lim *AllocLimitError
+	err = r.FinishOutermost(nil)
+	require.ErrorIs(t, err, ErrAllocLimit)
+	require.ErrorAs(t, err, &lim)
 	require.Equal(t, int64(5000), lim.Requested)
-	// A later charge does not replace the first overrun.
+
+	r.SetAllocBudget(1000)
+	err = r.charge(5000)
+	require.ErrorIs(t, err, ErrAllocLimit)
 	_ = r.charge(9000)
-	err = r.CheckInterrupt()
+	err = r.FinishOutermost(nil)
+	require.ErrorIs(t, err, ErrAllocLimit)
 	require.ErrorAs(t, err, &ie)
 	lim = ie.Value.(*AllocLimitError)
 	require.Equal(t, int64(5000), lim.Requested)
+}
+
+func TestInterruptLastPayloadWins(t *testing.T) {
+	r := NewRealm()
+	r.Interrupt("first")
+	r.Interrupt("second")
+	var ie *InterruptedError
+	require.ErrorAs(t, r.CheckInterrupt(), &ie)
+	require.Equal(t, "second", ie.Value)
 }
 
 func TestResultTooLargeCharge(t *testing.T) {

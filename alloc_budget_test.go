@@ -370,7 +370,9 @@ export function bomb() {
 	require.Greater(t, rt.AllocatedBytes(), int64(allocBudget))
 }
 
-func TestAllocBudgetHostInterruptWins(t *testing.T) {
+// A host interrupt pending before the overrun stops the call with its own
+// payload; an overrun that came first is what the call returns.
+func TestAllocBudgetInterruptPrecedence(t *testing.T) {
 	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
 	rt.Interrupt("timeout")
 	_, err := rt.RunScript(allocScript(t, `new Uint8Array(1 << 30)`))
@@ -392,6 +394,55 @@ func TestAllocBudgetHostInterruptWins(t *testing.T) {
 	require.ErrorAs(t, err, &ie)
 	_, ok := ie.Value.(*moejs.AllocLimitError)
 	require.True(t, ok)
+}
+
+func TestAllocBudgetCallDoesNotLeak(t *testing.T) {
+	const budget = 1 << 20
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: budget})
+	mod := mustModule(t, `
+export function f() { let o; for (let i = 0; i < 12000; i++) o = {}; return 1; }
+export function g() { return 2; }
+`)
+	require.NoError(t, rt.Load(mod))
+	f := mustHook(t, mod, "f")
+	g := mustHook(t, mod, "g")
+	_, err := rt.Call(f)
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.False(t, rt.Realm().Interrupted())
+	v, err := rt.Call(g)
+	require.NoError(t, err)
+	n, err := rt.ToGo(v)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), n)
+}
+
+func TestAllocBudgetExceptionMaskedByOverrun(t *testing.T) {
+	const budget = 1 << 20
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: budget})
+	src := "let o;\n"
+	for i := 0; i < 12000; i++ {
+		src += "o = {};\n"
+	}
+	src += "throw new Error('boom');\n"
+	_, err := rt.RunScript(allocScript(t, src))
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.False(t, rt.Realm().Interrupted())
+}
+
+func TestAllocBudgetClearInterruptDoesNotCancelOverrun(t *testing.T) {
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+	require.NoError(t, rt.SetGlobal("clear", moejs.NativeFunc(func(r *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
+		r.ClearInterrupt()
+		return moejs.Undefined(), nil
+	})))
+	var err error
+	slack := uint64(allocBudget)*4 + 32<<20
+	before, peak := heapSpan(func() {
+		_, err = rt.RunScript(allocScript(t, `const keep = []; for (let i = 0; i < 512; i++) { keep.push("x".repeat(1 << 20)); clear(); }`))
+	})
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.LessOrEqual(t, peak, before+slack, "heap grew past the budget slack")
+	require.False(t, rt.Realm().Interrupted())
 }
 
 func TestAllocBudgetInterruptRace(t *testing.T) {

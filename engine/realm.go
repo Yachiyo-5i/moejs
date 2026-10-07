@@ -273,6 +273,9 @@ type realmLazy struct {
 	modules        *moduleMap     // the module map (module_eval.go)
 	json           *jsonStack     // JSON.parse's reused stack (builtin_json.go)
 	statics        *regexpStatics // the RegExp statics' match (regexp_legacy.go)
+	// allocOverrun is the first budget overrun of the outermost entry
+	// (alloc.go). Only the goroutine running the realm reads or writes it.
+	allocOverrun *AllocLimitError
 }
 
 // lazyState returns the realm's rarely used state, creating it on first use.

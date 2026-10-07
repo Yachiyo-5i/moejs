@@ -38,7 +38,7 @@ func (rt *Runtime) Unmarshal(v Value, target any) (err error) {
 		}
 		return err
 	}
-	data, err := rt.AppendJSON(nil, v)
+	data, err := rt.appendJSON(nil, v)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (rt *Runtime) ToGoInto(v Value, target any) error {
 	if rt.realm.ResultTooLarge() {
 		return ErrResultTooLarge
 	}
-	g, err := rt.ToGo(v)
+	g, err := rt.toGo(v)
 	if err != nil {
 		return err
 	}

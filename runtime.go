@@ -505,13 +505,7 @@ func (rt *Runtime) ParseJSON(b []byte) (Value, error) {
 // drain jobs into that entry's error. Nested calls leave the interrupt for
 // the outermost ReleaseJobs.
 func (rt *Runtime) finishOuter(err error) error {
-	if rt.realm.CallDepth() != 0 {
-		return err
-	}
-	if ierr := rt.realm.ConsumeAllocInterrupt(); ierr != nil && err == nil {
-		return ierr
-	}
-	return err
+	return rt.realm.FinishOutermost(err)
 }
 
 // Get reads property key of v, running a getter and walking the prototype
@@ -548,8 +542,13 @@ func (rt *Runtime) Get(v Value, key string) (res Value, err error) {
 // (engine.MaxToGoDepth) is returned as the error. The Go string of an ASCII
 // string is the one v holds: for a value ParseJSON produced it may share the
 // parsed text and keep it alive; strings.Clone what is kept.
-func (rt *Runtime) ToGo(v Value) (out any, err error) {
+func (rt *Runtime) ToGo(v Value) (any, error) {
 	rt.beginAlloc()
+	return rt.toGo(v)
+}
+
+// toGo is ToGo within an entry that has already started its budget.
+func (rt *Runtime) toGo(v Value) (out any, err error) {
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	r.HoldJobs()
@@ -582,8 +581,14 @@ func (rt *Runtime) ToGo(v Value) (out any, err error) {
 // outermost Call returns, after AppendJSON has returned, and one that
 // appends to the same dst overwrites what AppendJSON appended, as any later
 // append would: a host function should use a buffer of its own.
-func (rt *Runtime) AppendJSON(dst []byte, v Value) (out []byte, err error) {
+func (rt *Runtime) AppendJSON(dst []byte, v Value) ([]byte, error) {
 	rt.beginAlloc()
+	return rt.appendJSON(dst, v)
+}
+
+// appendJSON is AppendJSON within an entry that has already started its
+// budget.
+func (rt *Runtime) appendJSON(dst []byte, v Value) (out []byte, err error) {
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	r.HoldJobs()
