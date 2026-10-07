@@ -166,7 +166,10 @@ func (r *Realm) trimBytes(data []byte, n int) ([]byte, error) {
 	if cap(data)-n <= n/4+64 {
 		return data[:n:n], nil
 	}
-	out := newBytes(n, n)
+	out, err := r.allocBytes(n, n)
+	if err != nil {
+		return nil, err
+	}
 	return out, r.copyBytes(out, data[:n])
 }
 
@@ -360,7 +363,10 @@ func uint8ArrayFromBase64(r *Realm, this Value, args []Value) (Value, error) {
 	// Room for all the bytes the input could decode to, so the decoder's
 	// limit never stops it.
 	size := (s.Len() + 3) / 4 * 3
-	dst := newBytes(size, size)
+	dst, err := r.allocBytes(size, size)
+	if err != nil {
+		return Undefined(), err
+	}
 	_, written, ok, err := r.decodeBase64(dst, s, url, h)
 	if err != nil {
 		return Undefined(), err
@@ -384,7 +390,10 @@ func uint8ArrayFromHex(r *Realm, this Value, args []Value) (Value, error) {
 	if !s.IsASCII() {
 		return Undefined(), r.SyntaxError("%s: the string is not valid hex", method)
 	}
-	dst := newBytes(s.Len()/2, s.Len()/2)
+	dst, err := r.allocBytes(s.Len()/2, s.Len()/2)
+	if err != nil {
+		return Undefined(), err
+	}
 	_, _, ok, err := r.decodeHex(dst, s)
 	if err != nil {
 		return Undefined(), err

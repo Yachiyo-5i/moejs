@@ -30,11 +30,11 @@
 
 ### 分配预算
 
-`Options.MaxAllocBytes` 估算一次 `Call`、`Load` 或 `RunScript` 分配的字节数，包括返回前执行的 Promise 任务。每次调用从零开始累加，只增不减。零是默认值，表示不设预算。
+`Options.MaxAllocBytes` 估算一次最外层 `Call`、`Load`、`RunScript`、`Get`、`ToGo`、`ToGoInto`、`Unmarshal`、`AppendJSON`、`Has`、`ParseJSON` 或 `FromGo` 分配的字节数，包括返回前执行的 Promise 任务。嵌套的 `Call` 沿用外层的计数和上限。每次最外层入口从零开始累加，只增不减。零是默认值，表示不设预算。
 
-这个估算不是存活堆。它不把垃圾回收释放的内存记回来，并且对分配向上取整。一次调用即将超过预算时，运行时以 `*AllocLimitError` 中断，调用返回 `*InterruptedError`。`errors.Is(err, ErrAllocLimit)` 可以识别它。脚本接不住这次中断：`catch` 和 `finally` 都不会执行。`ClearInterrupt` 之后，同一个运行时可以继续用。
+这个估算不是存活堆。它不把垃圾回收释放的内存记回来，并且对分配向上取整。一次调用即将超过预算时，运行时以 `*AllocLimitError` 中断，调用返回 `*InterruptedError`。`errors.Is(err, ErrAllocLimit)` 可以识别它。脚本接不住这次中断：`catch` 和 `finally` 都不会执行。超限由引起它的那次调用返回。对象可能只更新了一半，所以要丢掉这个运行时，不要 `ClearInterrupt` 之后继续用。
 
-`SetMaxAllocBytes` 修改下一次调用使用的预算。`AllocatedBytes` 返回当前或上一次调用已经记账的字节数。
+`SetMaxAllocBytes` 修改下一次最外层入口使用的预算，不改变已经在跑的调用。`AllocatedBytes` 返回当前或最近一次最外层入口已经记账的字节数。
 
 `Options.MaxResultBytes` 是另设的上限，约束 `ToGo`、`Unmarshal`、`ToGoInto` 和 `AppendJSON` 从同一个值产生的结果。超过它返回 `ErrResultTooLarge`，不中断运行时。零表示不设上限。一个很小、但把同一个对象重复很多次的值，转成 Go 值或 JSON 时会变大，这个上限用来拦住它。
 

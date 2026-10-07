@@ -420,7 +420,11 @@ func (r *Realm) CallObject(fn *Object, this Value, args []Value) (Value, error) 
 func (r *Realm) callOther(fd *FunctionData, this Value, args []Value) (Value, error) {
 	if fd.kind == FuncBound {
 		b := fd.bound()
-		return r.CallObject(b.target, fd.thisValue, appendArgs(b.args, args))
+		joined, err := r.appendArgs(b.args, args)
+		if err != nil {
+			return Undefined(), err
+		}
+		return r.CallObject(b.target, fd.thisValue, joined)
 	}
 	return fd.dataFn(r, fd, this, args)
 }
@@ -452,7 +456,11 @@ func (r *Realm) Construct(fn Value, args []Value, newTarget *Object) (Value, err
 		if newTarget == f {
 			newTarget = b.target
 		}
-		res, err = r.Construct(ObjectValue(b.target), appendArgs(b.args, args), newTarget)
+		var joined []Value
+		joined, err = r.appendArgs(b.args, args)
+		if err == nil {
+			res, err = r.Construct(ObjectValue(b.target), joined, newTarget)
+		}
 	case FuncProxy:
 		res, err = r.proxyConstruct(fd.data.(*proxyData), args, newTarget)
 	default:
@@ -465,13 +473,18 @@ func (r *Realm) Construct(fn Value, args []Value, newTarget *Object) (Value, err
 	return res, err
 }
 
-func appendArgs(bound, args []Value) []Value {
+// appendArgs concatenates a bound function's saved arguments with the
+// arguments of this call. The saved list already exists; the copy is charged.
+func (r *Realm) appendArgs(bound, args []Value) ([]Value, error) {
 	if len(bound) == 0 {
-		return args
+		return args, nil
 	}
-	out := make([]Value, 0, len(bound)+len(args))
+	out, err := r.allocValuesCap(len(bound) + len(args))
+	if err != nil {
+		return nil, err
+	}
 	out = append(out, bound...)
-	return append(out, args...)
+	return append(out, args...), nil
 }
 
 // newFunctionObject allocates a function object with the realm's shared

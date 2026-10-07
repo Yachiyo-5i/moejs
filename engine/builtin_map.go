@@ -378,12 +378,25 @@ func mapGroupBy(r *Realm, this Value, args []Value) (Value, error) {
 		k = canonicalCollKey(k)
 		i, ok := groups.get(k)
 		if !ok {
+			// allocMapEntry covers the table entry and its share of rebuilds.
+			if err := r.charge(allocMapEntry); err != nil {
+				return err
+			}
+			if len(lists) == cap(lists) && r.allocMax > 0 {
+				// A [][]Value element is a 24-byte header; 32 overestimates it.
+				if err := r.charge(int64(nextSliceCap(cap(lists), len(lists)+1)) * 32); err != nil {
+					return err
+				}
+			}
 			i = IntValue(len(lists))
 			groups.set(k, i)
 			lists = append(lists, nil)
 		}
 		n := int(i.AsNumber())
-		lists[n] = append(lists[n], v)
+		var err error
+		if lists[n], err = r.appendCharged(lists[n], v); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {

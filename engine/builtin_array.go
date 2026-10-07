@@ -104,7 +104,11 @@ func arrayConstruct(r *Realm, args []Value, newTarget *Object) (Value, error) {
 		}
 		arr = r.NewArrayLen(u)
 	default:
-		items := make([]Value, len(args))
+		// The argument list already exists; this copy is a second slice.
+		items, err := r.allocValues(len(args))
+		if err != nil {
+			return Undefined(), err
+		}
 		copy(items, args)
 		arr = r.NewArrayFromSlice(items)
 	}
@@ -369,7 +373,10 @@ func arrayFrom(r *Realm, this Value, args []Value) (Value, error) {
 		var list []Value
 		if usesList && ir.it.IsObject() && ir.pos.IsNumber() {
 			src := ir.it.AsObject()
-			list = make([]Value, 0, min(int(src.ArrayLength()), len(src.elements)))
+			capN := min(int(src.ArrayLength()), len(src.elements))
+			if list, err = r.allocValuesCap(capN); err != nil {
+				return Undefined(), err
+			}
 		}
 		for k := int64(0); ; k++ {
 			if err := interruptEvery(r, k); err != nil {
@@ -390,7 +397,7 @@ func arrayFrom(r *Realm, this Value, args []Value) (Value, error) {
 			}
 			if v, err = mapValue(v, k); err == nil {
 				if usesList {
-					list = append(list, v)
+					list, err = r.appendCharged(list, v)
 				} else {
 					err = a.CreateDataPropertyOrThrow(r, indexKey(r, k), v)
 				}
@@ -443,7 +450,10 @@ func arrayOf(r *Realm, this Value, args []Value) (Value, error) {
 		return Undefined(), err
 	}
 	if usesList {
-		items := make([]Value, len(args))
+		items, err := r.allocValues(len(args))
+		if err != nil {
+			return Undefined(), err
+		}
 		copy(items, args)
 		return ObjectValue(r.NewArrayFromSlice(items)), nil
 	}
@@ -865,10 +875,15 @@ func arrayProtoSort(r *Realm, this Value, args []Value) (Value, error) {
 	if err != nil {
 		return Undefined(), err
 	}
-	items := make([]Value, 0, min(n, int64(len(o.elements))+interruptStride))
+	items, err := r.allocValuesCap(int(min(n, int64(len(o.elements))+int64(interruptStride))))
+	if err != nil {
+		return Undefined(), err
+	}
 	for k := int64(0); k < n; k++ {
 		if v, ok := denseElement(o, k); ok {
-			items = append(items, v)
+			if items, err = r.appendCharged(items, v); err != nil {
+				return Undefined(), err
+			}
 		} else if has, err := hasIndex(r, o, k); err != nil {
 			return Undefined(), err
 		} else if has {
@@ -876,7 +891,9 @@ func arrayProtoSort(r *Realm, this Value, args []Value) (Value, error) {
 			if err != nil {
 				return Undefined(), err
 			}
-			items = append(items, v)
+			if items, err = r.appendCharged(items, v); err != nil {
+				return Undefined(), err
+			}
 		}
 		if err := interruptEvery(r, k); err != nil {
 			return Undefined(), err
@@ -934,7 +951,11 @@ func sortValues(r *Realm, items []Value, cmp Value) error {
 		fn := cmp.AsObject()
 		argv := r.pushArgs(2)
 		defer r.popArgs(2)
-		return mergeSort(vals, make([]Value, len(vals)), func(a, b Value) (int, error) {
+		scratch, err := r.allocValues(len(vals))
+		if err != nil {
+			return err
+		}
+		return mergeSort(vals, scratch, func(a, b Value) (int, error) {
 			argv[0], argv[1] = a, b
 			res, err := r.CallObject(fn, Undefined(), argv)
 			if err != nil {
@@ -952,6 +973,11 @@ func sortValues(r *Realm, items []Value, cmp Value) error {
 			}
 			return 0, nil // NaN and 0
 		})
+	}
+	// sortItem is a Value plus a *String. 32 bytes overestimates one so the
+	// key array and the mergesort scratch are both charged before they exist.
+	if err := r.charge(int64(len(vals)) * 32 * 2); err != nil {
+		return err
 	}
 	keyed := make([]sortItem, len(vals))
 	for i, v := range vals {
@@ -1084,7 +1110,10 @@ func arrayProtoSlice(r *Realm, this Value, args []Value) (Value, error) {
 	// A start/end valueOf may have shrunk the array: indices past the storage
 	// are holes now, which only the generic path reproduces.
 	if species == nil && plainArray(o) && k+count <= int64(len(o.elements)) {
-		items := make([]Value, count)
+		items, err := r.allocValues(int(count))
+		if err != nil {
+			return Undefined(), err
+		}
 		copy(items, o.elements[k:k+count])
 		return ObjectValue(r.NewArrayFromSlice(items)), nil
 	}
@@ -1157,7 +1186,10 @@ func arrayProtoConcat(r *Realm, this Value, args []Value) (Value, error) {
 		}
 	}
 	if fast && total <= math.MaxUint32 {
-		items := make([]Value, 0, total)
+		items, err := r.allocValuesCap(int(total))
+		if err != nil {
+			return Undefined(), err
+		}
 		for i := -1; i < len(args); i++ {
 			e := ObjectValue(o)
 			if i >= 0 {
@@ -1837,7 +1869,9 @@ func arrayProtoFilter(r *Realm, this Value, args []Value) (Value, error) {
 			}
 			to++
 		default:
-			selected = append(selected, v)
+			if selected, err = r.appendCharged(selected, v); err != nil {
+				return Undefined(), err
+			}
 		}
 	}
 	if a != nil {
@@ -1974,7 +2008,10 @@ func (t *flatTarget) add(r *Realm, v Value) error {
 			return err
 		}
 	} else {
-		t.items = append(t.items, v)
+		var err error
+		if t.items, err = r.appendCharged(t.items, v); err != nil {
+			return err
+		}
 	}
 	t.n++
 	return nil
@@ -2045,7 +2082,11 @@ func newFlatTarget(r *Realm, o *Object, n int64) (flatTarget, error) {
 		a, err := r.speciesCreate(species, 0)
 		return flatTarget{obj: a}, err
 	}
-	return flatTarget{items: make([]Value, 0, flatCapacity(o, n))}, nil
+	items, err := r.allocValuesCap(flatCapacity(o, n))
+	if err != nil {
+		return flatTarget{}, err
+	}
+	return flatTarget{items: items}, nil
 }
 
 func (t *flatTarget) result(r *Realm) Value {

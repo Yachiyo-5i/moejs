@@ -164,7 +164,10 @@ func objectKeys(r *Realm, this Value, args []Value) (Value, error) {
 				n++
 			}
 		}
-		ao, items := r.newArrayStorage(n, n)
+		ao, items, err := r.newArrayStorage(n, n)
+		if err != nil {
+			return Undefined(), err
+		}
 		n = 0
 		for i := range props {
 			if props[i].attrs&attrEnumerable != 0 && props[i].key.IsString() {
@@ -178,7 +181,10 @@ func objectKeys(r *Realm, this Value, args []Value) (Value, error) {
 	if err != nil {
 		return Undefined(), err
 	}
-	ao, items := r.newArrayStorage(len(keys), len(keys))
+	ao, items, err := r.newArrayStorage(len(keys), len(keys))
+	if err != nil {
+		return Undefined(), err
+	}
 	for i, k := range keys {
 		items[i] = StringValue(k.ToJSString(r))
 	}
@@ -212,10 +218,15 @@ func enumerableOwnProperties(r *Realm, v Value, entries bool) (Value, error) {
 	} else if keys, err = r.enumerableOwnKeys(o); err != nil {
 		return Undefined(), err
 	}
-	items := make([]Value, 0, len(keys))
+	items, err := r.allocValuesCap(len(keys))
+	if err != nil {
+		return Undefined(), err
+	}
 	var pairs []Value
 	if entries {
-		pairs = make([]Value, 0, 2*len(keys))
+		if pairs, err = r.allocValuesCap(2 * len(keys)); err != nil {
+			return Undefined(), err
+		}
 	}
 	self := ObjectValue(o)
 	for _, k := range keys {
@@ -746,8 +757,11 @@ func objectGetOwnPropertySymbols(r *Realm, this Value, args []Value) (Value, err
 	}
 	var items []Value
 	for _, k := range keys {
-		if k.IsSymbol() {
-			items = append(items, k.Value())
+		if !k.IsSymbol() {
+			continue
+		}
+		if items, err = r.appendCharged(items, k.Value()); err != nil {
+			return Undefined(), err
 		}
 	}
 	return ObjectValue(r.NewArrayFromSlice(items)), nil
@@ -763,11 +777,15 @@ func objectGetOwnPropertyNames(r *Realm, this Value, args []Value) (Value, error
 	if err != nil {
 		return Undefined(), err
 	}
-	items := make([]Value, 0, len(keys))
+	items, err := r.allocValuesCap(len(keys))
+	if err != nil {
+		return Undefined(), err
+	}
 	for _, k := range keys {
 		if k.IsSymbol() {
 			continue
 		}
+		// The cap is len(keys) and symbols are skipped, so this stays inside it.
 		items = append(items, StringValue(k.ToJSString(r)))
 	}
 	return ObjectValue(r.NewArrayFromSlice(items)), nil
@@ -809,15 +827,28 @@ func objectGroupBy(r *Realm, this Value, args []Value) (Value, error) {
 		}
 		i, ok := index[key]
 		if !ok {
+			if err = r.charge(allocMapEntry); err != nil {
+				return err
+			}
 			if index == nil {
 				index = make(map[PropertyKey]int)
+			}
+			if len(lists) == cap(lists) && r.allocMax > 0 {
+				if err = r.charge(int64(nextSliceCap(cap(lists), len(lists)+1)) * 32); err != nil {
+					return err
+				}
+			}
+			if err = r.chargeSliceGrow(cap(keys), len(keys)+1); err != nil {
+				return err
 			}
 			i = len(lists)
 			index[key] = i
 			keys = append(keys, key)
 			lists = append(lists, nil)
 		}
-		lists[i] = append(lists[i], v)
+		if lists[i], err = r.appendCharged(lists[i], v); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {

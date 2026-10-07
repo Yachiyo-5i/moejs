@@ -131,10 +131,30 @@ func (r *Realm) allocateBuffer(newTarget, ctor, defaultProto *Object, class Clas
 	if length > maxBufferLength || maxLen > maxBufferLength {
 		return nil, r.RangeError("Array buffer allocation failed")
 	}
-	if err := r.charge(allocBufferBase + length); err != nil {
+	data, err := r.allocBytes(int(length), int(length))
+	if err != nil {
 		return nil, err
 	}
-	return r.newBufferObject(proto, class, newBytes(int(length), int(length)), int(maxLen)), nil
+	return r.newBufferObject(proto, class, data, int(maxLen)), nil
+}
+
+// allocBytes charges allocBufferBase plus the capacity newBytes will
+// allocate, and returns that block only when the budget allows.
+func (r *Realm) allocBytes(n, c int) ([]byte, error) {
+	if n < 0 {
+		n = 0
+	}
+	if c < n {
+		c = n
+	}
+	size := int64(c)
+	if c < 16 {
+		size = int64((c + 7) &^ 7)
+	}
+	if err := r.charge(allocBufferBase + size); err != nil {
+		return nil, err
+	}
+	return newBytes(n, c), nil
 }
 
 // newBytes returns a zeroed data block of length n and capacity c, aligned
@@ -254,10 +274,10 @@ func (r *Realm) resizeBytes(data []byte, n, maxLen int) ([]byte, error) {
 	if maxLen >= 0 && n > c {
 		size = min(max(n, 2*c), maxLen)
 	}
-	if err := r.charge(allocBufferBase + int64(size)); err != nil {
+	moved, err := r.allocBytes(n, size)
+	if err != nil {
 		return nil, err
 	}
-	moved := newBytes(n, size)
 	if err := r.copyBytes(moved, data); err != nil {
 		return nil, err
 	}

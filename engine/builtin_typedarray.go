@@ -420,7 +420,11 @@ func (r *Realm) allocTypedArray(proto *Object, kind elemType, n int64) (*Object,
 		return nil, err
 	}
 	size := int(n) << elemShift[kind]
-	buf := r.newBufferObject(r.binaryIntr().ArrayBufferPrototype, ClassArrayBuffer, newBytes(size, size), -1)
+	data, err := r.allocBytes(size, size)
+	if err != nil {
+		return nil, err
+	}
+	buf := r.newBufferObject(r.binaryIntr().ArrayBufferPrototype, ClassArrayBuffer, data, -1)
 	return r.newTypedArrayObject(proto, kind, buf, 0, size), nil
 }
 
@@ -651,7 +655,9 @@ func (r *Realm) iterableToList(v, m Value) ([]Value, error) {
 		if len(vals) == maxBufferLength {
 			return nil, r.RangeError("Invalid typed array length: %d", len(vals)+1)
 		}
-		vals = append(vals, e)
+		if vals, err = r.appendCharged(vals, e); err != nil {
+			return nil, err
+		}
 	}
 }
 

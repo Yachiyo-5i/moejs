@@ -372,7 +372,9 @@ func regexpSymMatch(r *Realm, rx *Object, str Value) (Value, error) {
 		if err != nil {
 			return Undefined(), err
 		}
-		items = append(items, StringValue(matchStr))
+		if items, err = r.appendCharged(items, StringValue(matchStr)); err != nil {
+			return Undefined(), err
+		}
 		if matchStr.Len() == 0 {
 			if err := r.advanceAfterEmptyMatch(rx, s, fullUnicode); err != nil {
 				return Undefined(), err
@@ -708,7 +710,9 @@ func regexpSymSplit(r *Realm, rx *Object, str, limit Value) (Value, error) {
 			q = advanceStringIndex(s, q, unicodeMatching)
 			continue
 		}
-		items = append(items, StringValue(s.Substring(int(p), int(q))))
+		if items, err = r.appendCharged(items, StringValue(s.Substring(int(p), int(q)))); err != nil {
+			return Undefined(), err
+		}
 		if uint32(len(items)) == lim {
 			return ObjectValue(r.NewArrayFromSlice(items)), nil
 		}
@@ -726,14 +730,18 @@ func regexpSymSplit(r *Realm, rx *Object, str, limit Value) (Value, error) {
 			if err != nil {
 				return Undefined(), err
 			}
-			items = append(items, c)
+			if items, err = r.appendCharged(items, c); err != nil {
+				return Undefined(), err
+			}
 			if uint32(len(items)) == lim {
 				return ObjectValue(r.NewArrayFromSlice(items)), nil
 			}
 		}
 		q = p
 	}
-	items = append(items, StringValue(s.Substring(int(p), int(size))))
+	if items, err = r.appendCharged(items, StringValue(s.Substring(int(p), int(size)))); err != nil {
+		return Undefined(), err
+	}
 	return ObjectValue(r.NewArrayFromSlice(items)), nil
 }
 

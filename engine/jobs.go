@@ -194,8 +194,22 @@ func (r *Realm) HoldJobs() { r.callDepth++ }
 // error of what ran held; ReleaseJobs returns it, or what the drain
 // returns in its place (see the file comment).
 func (r *Realm) ReleaseJobs(err error) error {
-	if r.callDepth--; r.callDepth == 0 && r.jobsPending {
-		return r.endJob(err)
+	if r.callDepth--; r.callDepth == 0 {
+		// A budget overrun belongs to this call, including one no
+		// checkpoint observed (err is still nil) and one the call is
+		// already returning. Clear it so the next entry is not blamed.
+		// Jobs are not run after it: endJob drops them when err is an
+		// *InterruptedError.
+		if ierr := r.ConsumeAllocInterrupt(); ierr != nil && err == nil {
+			err = ierr
+		}
+		if r.jobsPending {
+			err = r.endJob(err)
+		}
+		// A job can publish the overrun after the check above.
+		if ierr := r.ConsumeAllocInterrupt(); ierr != nil && err == nil {
+			err = ierr
+		}
 	}
 	return err
 }

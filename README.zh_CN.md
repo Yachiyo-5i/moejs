@@ -243,7 +243,7 @@ func main() {
 服务端照 `Plugin` 这样调用插件，每个请求的开销最小。从池里取一个运行时只是一次 channel 接收，新建运行时并加载最大的插件约需 71 µs。
 运行时池、模块图、值的转换、Promise 和错误的细节见[使用指南](docs/guide.zh_CN.md)，每个函数的说明见[包文档](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)。
 
-`Options.MaxAllocBytes` 限制一次调用估算的分配量。`Options.MaxResultBytes` 限制一次转换成 Go 值或 JSON 的结果大小。两者的说明见[使用指南](docs/guide.zh_CN.md)。
+`Options.MaxAllocBytes` 限制一次最外层调用估算的分配量。返回 `ErrAllocLimit` 后丢掉这个运行时。`Options.MaxResultBytes` 限制一次转换成 Go 值或 JSON 的结果大小。两者的说明见[使用指南](docs/guide.zh_CN.md)。
 
 moejs 仓库里有一份按插件负载录制的 `default.pgo`。Go 只自动使用 main 包目录下的 profile，所以构建时要手动传入：
 

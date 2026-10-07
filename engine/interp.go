@@ -389,7 +389,10 @@ func (r *Realm) enterFrame(fn *Object, fd *FunctionData, this Value, args []Valu
 	if code.HasRest {
 		var rest []Value
 		if len(args) > np {
-			rest = make([]Value, len(args)-np)
+			var err error
+			if rest, err = r.allocValues(len(args) - np); err != nil {
+				return Undefined(), err
+			}
 			copy(rest, args[np:])
 		}
 		regs[np] = ObjectValue(r.NewArrayFromSlice(rest))

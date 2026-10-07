@@ -34,12 +34,17 @@ type Options struct {
 	// for hosts whose code needs none (engine.RealmOptions). Compile and
 	// CompileScript are not affected.
 	DisableDynamicCode bool
-	// MaxAllocBytes is the allocation budget, in estimated bytes, of one Call,
-	// Load or RunScript, including the promise jobs they run before returning.
-	// The count only grows during the call and starts again at zero on the next
-	// one. When a step would exceed it, the runtime is interrupted with an
-	// *AllocLimitError and the call returns *InterruptedError. Zero means no
-	// budget. The estimate is not the live heap: it ignores what the GC frees.
+	// MaxAllocBytes is the allocation budget, in estimated bytes, of one
+	// outermost Call, Load, RunScript, Get, ToGo, ToGoInto, Unmarshal,
+	// AppendJSON, Has, ParseJSON or FromGo, including the promise jobs they
+	// run before returning. A nested Call keeps the outer counter. The count
+	// only grows during the call and starts again at zero on the next
+	// outermost entry. When a step would exceed it, the runtime is
+	// interrupted with an *AllocLimitError and the call returns
+	// *InterruptedError. Zero means no budget. The estimate is not the live
+	// heap: it ignores what the GC frees. After that error the runtime's
+	// objects may be half-updated; discard it instead of clearing the
+	// interrupt and reusing it.
 	MaxAllocBytes int64
 	// MaxResultBytes bounds what ToGo, Unmarshal, ToGoInto and AppendJSON
 	// produce from one value, in estimated bytes of the Go result or JSON text.
@@ -104,9 +109,11 @@ func NewRuntime(opts Options) *Runtime {
 	return rt
 }
 
-// SetMaxAllocBytes sets the allocation budget used by the next Call, Load
-// or RunScript. It does not change a call that is already running. A
-// negative value means no budget.
+// SetMaxAllocBytes sets the allocation budget used by the next outermost
+// Call, Load, RunScript, Get, ToGo, ToGoInto, Unmarshal, AppendJSON, Has,
+// ParseJSON or FromGo. It does not change a call that is already running,
+// and a nested Call does not install it either. A negative value means no
+// budget.
 func (rt *Runtime) SetMaxAllocBytes(n int64) {
 	if n < 0 {
 		n = 0
@@ -114,12 +121,17 @@ func (rt *Runtime) SetMaxAllocBytes(n int64) {
 	rt.maxAlloc = n
 }
 
-// AllocatedBytes returns the bytes charged for the current or previous
-// Call, Load or RunScript.
+// AllocatedBytes returns the bytes charged for the current or most recent
+// outermost entry (Call, Load, RunScript, Get, ToGo, ToGoInto, Unmarshal,
+// AppendJSON, Has, ParseJSON or FromGo).
 func (rt *Runtime) AllocatedBytes() int64 { return rt.realm.AllocatedBytes() }
 
-// beginAlloc starts the allocation budget of one Call, Load or RunScript.
+// beginAlloc starts the allocation budget of one outermost entry. A nested
+// Call, Load or RunScript keeps the caller's counter and limit.
 func (rt *Runtime) beginAlloc() {
+	if rt.realm.CallDepth() != 0 {
+		return
+	}
 	n := rt.maxAlloc
 	if n < 0 {
 		n = 0
@@ -297,6 +309,7 @@ func (rt *Runtime) reexport(name string) (Value, bool) {
 // the path that throws is returned as the error, and so is Load's for the
 // hooks of a module whose top level failed.
 func (rt *Runtime) Has(h Hook) (ok bool, err error) {
+	rt.beginAlloc()
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	_, err = rt.lookup(h)
@@ -475,13 +488,30 @@ func (rt *Runtime) ClearInterrupt() { rt.realm.ClearInterrupt() }
 // runtime is ErrForeign; inside a container, reading its member throws a
 // TypeError with ErrForeign's text.
 func (rt *Runtime) FromGo(v any) (Value, error) {
-	return rt.realm.FromGo(v)
+	rt.beginAlloc()
+	val, err := rt.realm.FromGo(v)
+	return val, rt.finishOuter(err)
 }
 
 // ParseJSON is JSON.parse of b. Nesting deeper than 10,000 arrays and
 // objects (engine.MaxToGoDepth) is a RangeError.
 func (rt *Runtime) ParseJSON(b []byte) (Value, error) {
-	return rt.realm.JSONParseGoString(string(b))
+	rt.beginAlloc()
+	val, err := rt.realm.JSONParseGoString(string(b))
+	return val, rt.finishOuter(err)
+}
+
+// finishOuter turns a budget overrun of an outermost entry that does not
+// drain jobs into that entry's error. Nested calls leave the interrupt for
+// the outermost ReleaseJobs.
+func (rt *Runtime) finishOuter(err error) error {
+	if rt.realm.CallDepth() != 0 {
+		return err
+	}
+	if ierr := rt.realm.ConsumeAllocInterrupt(); ierr != nil && err == nil {
+		return ierr
+	}
+	return err
 }
 
 // Get reads property key of v, running a getter and walking the prototype
@@ -490,6 +520,7 @@ func (rt *Runtime) Get(v Value, key string) (res Value, err error) {
 	if v.IsUndefined() || v.IsNull() {
 		return engine.Undefined(), nil
 	}
+	rt.beginAlloc()
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	r.HoldJobs()
@@ -518,6 +549,7 @@ func (rt *Runtime) Get(v Value, key string) (res Value, err error) {
 // string is the one v holds: for a value ParseJSON produced it may share the
 // parsed text and keep it alive; strings.Clone what is kept.
 func (rt *Runtime) ToGo(v Value) (out any, err error) {
+	rt.beginAlloc()
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	r.HoldJobs()
@@ -551,6 +583,7 @@ func (rt *Runtime) ToGo(v Value) (out any, err error) {
 // appends to the same dst overwrites what AppendJSON appended, as any later
 // append would: a host function should use a buffer of its own.
 func (rt *Runtime) AppendJSON(dst []byte, v Value) (out []byte, err error) {
+	rt.beginAlloc()
 	r := rt.realm
 	defer rt.guard(&err, r.CallState(), len(rt.argStack))
 	r.HoldJobs()

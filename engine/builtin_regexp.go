@@ -778,9 +778,16 @@ func (r *Realm) regexpExecResult(d *RegExpData, s *String, m []int) *Object {
 	n := d.c.ngroups()
 	// One exec result is a small array plus index, input and groups. A
 	// pattern with many groups charges its element storage before the make.
+	// The d flag builds a second array of the same length.
 	r.chargeNote(allocExecResult)
-	if n > 8 && r.charge(int64(n+1)*allocValue) != nil {
-		return r.NewArrayLen(0)
+	if n > 8 {
+		cost := int64(n+1) * allocValue
+		if d.c.flags.hasIndices {
+			cost *= 2
+		}
+		if r.charge(cost) != nil {
+			return r.NewArrayLen(0)
+		}
 	}
 	items := make([]Value, n+1)
 	for i := range items {
@@ -822,6 +829,11 @@ func (r *Realm) regexpExecResult(d *RegExpData, s *String, m []int) *Object {
 			continue
 		}
 		pairs[i] = ObjectValue(r.NewArray(IntValue(m[2*i]), IntValue(m[2*i+1])))
+		// Each pair is its own array. Stop once the budget has fired so a
+		// pattern with many groups cannot keep allocating past the overrun.
+		if r.allocMax > 0 && r.interruptFlag.Load() != 0 {
+			return r.NewArrayLen(0)
+		}
 	}
 	indices := r.NewArrayFromSlice(pairs)
 	indices.shape = r.arrayShape().addProperty(r, StringKey(AtomGroups), attrDefault)
@@ -1331,7 +1343,10 @@ func regexpMatch(r *Realm, rx *Object, d *RegExpData, s *String) (Value, error) 
 			if !ok {
 				break
 			}
-			items = append(items, StringValue(s.Substring(start, end)))
+			var err error
+			if items, err = r.appendCharged(items, StringValue(s.Substring(start, end))); err != nil {
+				return Undefined(), err
+			}
 			last, pos = start, end
 			if len(items)&1023 == 0 {
 				if err := r.CheckInterrupt(); err != nil {
@@ -1368,7 +1383,10 @@ func regexpMatch(r *Realm, rx *Object, d *RegExpData, s *String) (Value, error) 
 		return Null(), nil
 	}
 	r.noteMatch(d, s, d.c, matchedAt(sub.toUnit(matches[len(matches)-1][0])))
-	items := make([]Value, len(matches))
+	items, err := r.allocValues(len(matches))
+	if err != nil {
+		return Undefined(), err
+	}
 	for i, m := range matches {
 		items[i] = StringValue(s.Substring(sub.toUnit(m[0]), sub.toUnit(m[1])))
 	}
@@ -1421,15 +1439,20 @@ func regexpSplit(r *Realm, d *RegExpData, s *String, lim uint32) (Value, error) 
 		}
 		sub.toUnits(m)
 		st.lastS, st.lastC, st.lastAt = s, d.c, matchedAt(m[0])
-		items = append(items, StringValue(s.Substring(p, m[0])))
+		if items, err = r.appendCharged(items, StringValue(s.Substring(p, m[0]))); err != nil {
+			return Undefined(), err
+		}
 		if uint32(len(items)) == lim {
 			return ObjectValue(r.NewArrayFromSlice(items)), nil
 		}
 		for i := 1; i <= ngroups; i++ {
 			if m[2*i] < 0 {
-				items = append(items, Undefined())
+				items, err = r.appendCharged(items, Undefined())
 			} else {
-				items = append(items, StringValue(s.Substring(m[2*i], m[2*i+1])))
+				items, err = r.appendCharged(items, StringValue(s.Substring(m[2*i], m[2*i+1])))
+			}
+			if err != nil {
+				return Undefined(), err
 			}
 			if uint32(len(items)) == lim {
 				return ObjectValue(r.NewArrayFromSlice(items)), nil
@@ -1444,7 +1467,10 @@ func regexpSplit(r *Realm, d *RegExpData, s *String, lim uint32) (Value, error) 
 			}
 		}
 	}
-	items = append(items, StringValue(s.Substring(p, size)))
+	items, err := r.appendCharged(items, StringValue(s.Substring(p, size)))
+	if err != nil {
+		return Undefined(), err
+	}
 	return ObjectValue(r.NewArrayFromSlice(items)), nil
 }
 

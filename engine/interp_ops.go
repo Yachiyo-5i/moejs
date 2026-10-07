@@ -715,7 +715,9 @@ func (r *Realm) forInInit(v Value) (keys, obj Value, err error) {
 			if attrs&attrEnumerable == 0 {
 				continue
 			}
-			list = append(list, StringValue(k.ToJSString(r)))
+			if list, err = r.appendCharged(list, StringValue(k.ToJSString(r))); err != nil {
+				return Undefined(), Undefined(), err
+			}
 		}
 		if cur, err = r.getPrototypeOf(cur); err != nil {
 			return Undefined(), Undefined(), err

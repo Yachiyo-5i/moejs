@@ -77,6 +77,12 @@ func (r *Realm) chargeNote(n int64) {
 
 //go:noinline
 func (r *Realm) chargeSlow(n int64) error {
+	// An interrupt already published, by the budget or by the host, keeps
+	// its payload. Later charges must not replace it or allocate another
+	// AllocLimitError, and the counter stays at the first overrun.
+	if r.interruptFlag.Load() != 0 {
+		return r.CheckInterrupt()
+	}
 	used := r.allocUsed
 	sum := used + n
 	if sum < used {
@@ -91,6 +97,25 @@ func (r *Realm) chargeSlow(n int64) error {
 	return r.CheckInterrupt()
 }
 
+// ConsumeAllocInterrupt returns the budget overrun published during the
+// outermost call, and clears it so the next call is not blamed for it.
+// A host interrupt is left pending. The realm's objects may be
+// half-updated after this error; discard the runtime.
+func (r *Realm) ConsumeAllocInterrupt() error {
+	if r.interruptFlag.Load() == 0 {
+		return nil
+	}
+	p := r.interruptValue.Load()
+	if p == nil {
+		return nil
+	}
+	if _, ok := p.v.(*AllocLimitError); !ok {
+		return nil
+	}
+	r.ClearInterrupt()
+	return &InterruptedError{Value: p.v}
+}
+
 // SetAllocBudget installs n as the allocation budget and zeroes the counter.
 // A negative n means no budget. Runtime.Call, Load and RunScript do this at
 // entry; a host that drives the realm directly can too.
@@ -103,7 +128,7 @@ func (r *Realm) SetAllocBudget(n int64) {
 }
 
 // AllocatedBytes is the estimated bytes charged to the current or most
-// recent Call, Load or RunScript.
+// recent outermost entry.
 func (r *Realm) AllocatedBytes() int64 { return r.allocUsed }
 
 // nextSliceCap estimates the capacity growslice would give a slice that
@@ -146,6 +171,46 @@ func (r *Realm) chargeSliceGrow(oldCap, need int) error {
 		return nil
 	}
 	return r.charge(int64(nextSliceCap(oldCap, need)) * allocValue)
+}
+
+// allocValues charges element storage for n values and allocates it only
+// when the budget allows. NewArrayFromSlice charges the object header.
+func (r *Realm) allocValues(n int) ([]Value, error) {
+	if n < 0 {
+		n = 0
+	}
+	if err := r.chargeSliceGrow(0, n); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return []Value{}, nil
+	}
+	return make([]Value, n), nil
+}
+
+// allocValuesCap is allocValues for a 0-length slice with room for c values.
+func (r *Realm) allocValuesCap(c int) ([]Value, error) {
+	if c < 0 {
+		c = 0
+	}
+	if err := r.chargeSliceGrow(0, c); err != nil {
+		return nil, err
+	}
+	if c == 0 {
+		return nil, nil
+	}
+	return make([]Value, 0, c), nil
+}
+
+// appendCharged appends v, charging a growth of the backing array first.
+// A budget error leaves s unchanged.
+func (r *Realm) appendCharged(s []Value, v Value) ([]Value, error) {
+	if len(s) == cap(s) && r.allocMax > 0 {
+		if err := r.chargeSliceGrow(cap(s), len(s)+1); err != nil {
+			return s, err
+		}
+	}
+	return append(s, v), nil
 }
 
 // growElements is growWithHoles that charges the new backing array first.

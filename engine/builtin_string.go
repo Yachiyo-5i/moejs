@@ -1169,7 +1169,10 @@ func splitByString(r *Realm, s, sep *String, lim uint32) (*Object, error) {
 		if q < 0 {
 			break
 		}
-		items = append(items, StringValue(s.Substring(p, q)))
+		var err error
+		if items, err = r.appendCharged(items, StringValue(s.Substring(p, q))); err != nil {
+			return nil, err
+		}
 		if uint32(len(items)) == lim {
 			return r.NewArrayFromSlice(items), nil
 		}
@@ -1178,7 +1181,10 @@ func splitByString(r *Realm, s, sep *String, lim uint32) (*Object, error) {
 		}
 		p = q + sep.Len()
 	}
-	items = append(items, StringValue(s.Substring(p, s.Len())))
+	var err error
+	if items, err = r.appendCharged(items, StringValue(s.Substring(p, s.Len()))); err != nil {
+		return nil, err
+	}
 	return r.NewArrayFromSlice(items), nil
 }
 

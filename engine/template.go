@@ -32,6 +32,9 @@ func (r *Realm) templateObject(k *bytecode.Const, e *ICEntry) *Object {
 		}
 	}
 	n := len(k.Cooked)
+	// Cooked and raw share one slice. Its length is the compiled template,
+	// and dynamic source is capped by MaxDynamicSource, so the note is bounded.
+	r.chargeNote(int64(n) * 2 * allocValue)
 	vals := make([]Value, 2*n)
 	cooked, raw := vals[:n:n], vals[n:]
 	for i, s := range k.Cooked {

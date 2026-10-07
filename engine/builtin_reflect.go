@@ -205,7 +205,10 @@ func reflectOwnKeys(r *Realm, this Value, args []Value) (Value, error) {
 	if err != nil {
 		return Undefined(), err
 	}
-	ao, items := r.newArrayStorage(len(keys), len(keys))
+	ao, items, err := r.newArrayStorage(len(keys), len(keys))
+	if err != nil {
+		return Undefined(), err
+	}
 	for i, k := range keys {
 		items[i] = keyValue(r, k)
 	}

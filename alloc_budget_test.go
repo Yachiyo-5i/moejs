@@ -116,24 +116,31 @@ func TestAllocBudgetBombs(t *testing.T) {
 			require.Greater(t, lim.Used+lim.Requested, lim.Limit)
 			require.LessOrEqual(t, peak, before+slack, "heap grew past the budget slack")
 
+			// The overrun belongs to this call. Objects may be half-updated, so
+			// a later script is only required not to panic.
+			require.False(t, rt.Realm().Interrupted())
 			rt.ClearInterrupt()
-			var fin moejs.Value
-			if b.mod {
-				var ok bool
-				fin, ok = rt.Export("fin")
-				require.True(t, ok)
-			} else {
-				fin, err = rt.RunScript(allocScript(t, "fin"))
-				require.NoError(t, err)
-			}
-			got, err := rt.ToGo(fin)
-			require.NoError(t, err)
-			require.Equal(t, false, got)
-			sum, err := rt.RunScript(allocScript(t, "1 + 1"))
-			require.NoError(t, err)
-			n, err := rt.ToGo(sum)
-			require.NoError(t, err)
-			require.Equal(t, int64(2), n)
+			func() {
+				defer func() {
+					if p := recover(); p != nil {
+						t.Errorf("reuse panicked: %v", p)
+					}
+				}()
+				var fin moejs.Value
+				if b.mod {
+					var ok bool
+					fin, ok = rt.Export("fin")
+					require.True(t, ok)
+				} else {
+					var ferr error
+					fin, ferr = rt.RunScript(allocScript(t, "fin"))
+					require.NoError(t, ferr)
+				}
+				got, gerr := rt.ToGo(fin)
+				require.NoError(t, gerr)
+				require.Equal(t, false, got)
+				_, _ = rt.RunScript(allocScript(t, "1 + 1"))
+			}()
 		})
 	}
 }
@@ -297,6 +304,94 @@ func TestResultTooLarge(t *testing.T) {
 	n, err := rt.ToGo(sum)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), n)
+}
+
+func TestAllocBudgetBypass(t *testing.T) {
+	cases := []string{
+		`new Uint8Array(1 << 30)`,
+		`new Float64Array(1 << 27)`,
+		`const a = new Uint8Array(1 << 22); for (;;) a.map(x => x)`,
+		`Array(3e7).toSorted()`,
+		`Array(3e7).toReversed()`,
+		`Array(3e7).with(0, 1)`,
+		`Array(3e7).toSpliced(0, 0)`,
+		`Array.from(Array(3e7))`,
+		`Array.from("x".repeat(1 << 23))`,
+		`Array.from({length: 3e7})`,
+		`[...Array(3e7).keys()]`,
+		`"x".repeat(1 << 23).split("")`,
+		`"x".padStart(1 << 29)`,
+		`Array(1 << 22).fill(0).flat()`,
+		`Object.keys(Array(1 << 22).fill(0))`,
+		`Object.entries(Array(1 << 22).fill(0))`,
+		`[..."x".repeat(1 << 23)]`,
+	}
+	slack := uint64(allocBudget)*4 + 32<<20
+	for _, src := range cases {
+		t.Run(src, func(t *testing.T) {
+			rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+			var err error
+			before, peak := heapSpan(func() {
+				_, err = rt.RunScript(allocScript(t, src+"; 0"))
+			})
+			require.ErrorIs(t, err, moejs.ErrAllocLimit)
+			require.LessOrEqual(t, peak, before+slack, "heap grew past the budget slack")
+		})
+	}
+}
+
+func TestAllocBudgetDoesNotLeak(t *testing.T) {
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+	_, err := rt.RunScript(allocScript(t, `Array.from(Array(3e6)); 0`))
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.False(t, rt.Realm().Interrupted())
+	_, err = rt.RunScript(allocScript(t, `1 + 1`))
+	require.NoError(t, err)
+}
+
+func TestAllocBudgetNestedCallDoesNotReset(t *testing.T) {
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+	mod := mustModule(t, `
+export function noop() {}
+export function bomb() {
+  const keep = [];
+  for (let i = 0; i < 200; i++) { keep.push("x".repeat(1 << 20)); host(); }
+  return keep.length;
+}
+`)
+	require.NoError(t, rt.Load(mod))
+	noop := mustHook(t, mod, "noop")
+	require.NoError(t, rt.SetGlobal("host", moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
+		_, err := rt.Call(noop)
+		return moejs.Undefined(), err
+	})))
+	_, err := rt.Call(mustHook(t, mod, "bomb"))
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.Greater(t, rt.AllocatedBytes(), int64(allocBudget))
+}
+
+func TestAllocBudgetHostInterruptWins(t *testing.T) {
+	rt := moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+	rt.Interrupt("timeout")
+	_, err := rt.RunScript(allocScript(t, `new Uint8Array(1 << 30)`))
+	var ie *moejs.InterruptedError
+	require.ErrorAs(t, err, &ie)
+	require.Equal(t, "timeout", ie.Value)
+
+	rt = moejs.NewRuntime(moejs.Options{MaxAllocBytes: allocBudget})
+	huge := allocScript(t, `new Uint8Array(1 << 28)`)
+	require.NoError(t, rt.SetGlobal("late", moejs.NativeFunc(func(r *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
+		// Nested, so this keeps the outer budget. The overrun is published
+		// here; the host interrupt after it must not replace the payload.
+		_, _ = rt.RunScript(huge)
+		r.Interrupt("timeout")
+		return moejs.Undefined(), r.CheckInterrupt()
+	})))
+	_, err = rt.RunScript(allocScript(t, `late()`))
+	require.ErrorIs(t, err, moejs.ErrAllocLimit)
+	require.ErrorAs(t, err, &ie)
+	_, ok := ie.Value.(*moejs.AllocLimitError)
+	require.True(t, ok)
 }
 
 func TestAllocBudgetInterruptRace(t *testing.T) {

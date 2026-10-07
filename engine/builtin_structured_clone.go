@@ -361,7 +361,10 @@ func (c *cloner) cloneBinary(o *Object) (*Object, error) {
 		if x.detached {
 			return nil, r.TypeError("DataCloneError: a detached ArrayBuffer could not be cloned")
 		}
-		data := newBytes(len(x.data), len(x.data))
+		data, err := r.allocBytes(len(x.data), len(x.data))
+		if err != nil {
+			return nil, err
+		}
 		if err := r.copyBytes(data, x.data); err != nil {
 			return nil, err
 		}

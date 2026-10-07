@@ -42,20 +42,25 @@ host calls `ClearInterrupt` before it reuses the runtime.
 
 ### Allocation budget
 
-`Options.MaxAllocBytes` is an estimate of the bytes one `Call`, `Load` or
-`RunScript` allocates, including the promise jobs that run before it
-returns. The count starts at zero on every call and only grows. Zero, the
+`Options.MaxAllocBytes` is an estimate of the bytes one outermost `Call`,
+`Load`, `RunScript`, `Get`, `ToGo`, `ToGoInto`, `Unmarshal`, `AppendJSON`,
+`Has`, `ParseJSON` or `FromGo` allocates, including the promise jobs that
+run before it returns. A nested `Call` keeps the outer counter and limit.
+The count starts at zero on every outermost entry and only grows. Zero, the
 default, means no budget.
 
 The estimate is not the live heap. It does not credit memory the garbage
 collector frees, and it rounds allocations up. A call that would pass the
 budget is interrupted with `*AllocLimitError` and returns
 `*InterruptedError`. `errors.Is(err, ErrAllocLimit)` reports it. The script
-cannot catch that interrupt: `catch` and `finally` do not run. After
-`ClearInterrupt` the same runtime can run again.
+cannot catch that interrupt: `catch` and `finally` do not run. The overrun
+is returned from the call that caused it. Objects may be left half-updated,
+so discard the runtime; do not `ClearInterrupt` and reuse it.
 
-`SetMaxAllocBytes` changes the budget used by the next call.
-`AllocatedBytes` reports what the current or previous call charged.
+`SetMaxAllocBytes` changes the budget used by the next outermost entry. It
+does not change a call that is already running.
+`AllocatedBytes` reports what the current or most recent outermost entry
+charged.
 
 `Options.MaxResultBytes` is a separate bound on what `ToGo`, `Unmarshal`,
 `ToGoInto` and `AppendJSON` produce from one value. Passing it returns

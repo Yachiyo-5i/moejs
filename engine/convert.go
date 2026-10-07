@@ -436,7 +436,10 @@ func (r *Realm) CreateListFromArrayLike(v Value) ([]Value, error) {
 	if n > 1<<24 {
 		return nil, r.RangeError("Too many arguments in function call (only %d allowed)", 1<<24)
 	}
-	list := make([]Value, n)
+	list, err := r.allocValues(int(n))
+	if err != nil {
+		return nil, err
+	}
 	for i := range list {
 		if list[i], err = o.GetIndex(r, uint32(i)); err != nil {
 			return nil, err

@@ -49,16 +49,10 @@ type arrayObject8 struct {
 	buf [smallArrayMax]Value
 }
 
-// newArrayStorage returns an array object and element storage of length n
-// with capacity for at least c >= n elements, co-allocated when c is small.
-func (r *Realm) newArrayStorage(n, c int) (*arrayObject, []Value) {
-	if c > smallArrayMax {
-		if r.charge(allocObjectBase+int64(c)*allocValue) != nil {
-			return &arrayObject{}, nil
-		}
-		return &arrayObject{}, make([]Value, n, c)
-	}
-	r.chargeNote(allocObjectBase + int64(c)*allocValue)
+// arrayStorage returns an array object and element storage of length n with
+// capacity for c elements, co-allocated when c is small. It does not charge;
+// newArrayStorage and copyStorage do that before calling it.
+func (r *Realm) arrayStorage(n, c int) (*arrayObject, []Value) {
 	switch {
 	case c <= 2:
 		x := &arrayObject2{}
@@ -76,14 +70,35 @@ func (r *Realm) newArrayStorage(n, c int) (*arrayObject, []Value) {
 	return &arrayObject{}, make([]Value, n, c)
 }
 
+// newArrayStorage returns an array object and element storage of length n
+// with capacity for at least c >= n elements, co-allocated when c is small.
+// A budget error allocates nothing. Callers must not index a nil slice.
+func (r *Realm) newArrayStorage(n, c int) (*arrayObject, []Value, error) {
+	if c < n {
+		c = n
+	}
+	if c > smallArrayMax {
+		if err := r.charge(allocObjectBase + int64(c)*allocValue); err != nil {
+			return nil, nil, err
+		}
+		return &arrayObject{}, make([]Value, n, c), nil
+	}
+	r.chargeNote(allocObjectBase + int64(c)*allocValue)
+	ao, items := r.arrayStorage(n, c)
+	return ao, items, nil
+}
+
 // NewArray creates a dense array holding items (the slice is retained).
 func (r *Realm) NewArray(items ...Value) *Object {
 	return r.NewArrayFromSlice(items)
 }
 
 // NewArrayFromSlice creates a dense array that takes ownership of items.
+// The caller charges items' backing array as it grows; this only charges
+// the object header, which has a constant size. Charging cap(items) here
+// would be after the backing array already exists.
 func (r *Realm) NewArrayFromSlice(items []Value) *Object {
-	r.chargeNote(allocObjectBase + int64(cap(items))*allocValue)
+	r.chargeNote(allocObjectBase)
 	return r.initArray(&arrayObject{}, items, uint32(len(items)))
 }
 
@@ -94,7 +109,12 @@ func (r *Realm) NewArrayCap(n int) *Object {
 	if n == 0 {
 		n = 4
 	}
-	ao, items := r.newArrayStorage(0, n)
+	ao, items, err := r.newArrayStorage(0, n)
+	if err != nil {
+		// The interrupt is published. An empty array keeps later index
+		// writes from panicking on a nil slice; discard the runtime.
+		return r.initArray(&arrayObject{}, nil, 0)
+	}
 	return r.initArray(ao, items, 0)
 }
 
@@ -104,7 +124,11 @@ func (r *Realm) NewArrayLen(n uint32) *Object {
 	if n > denseGrowLimit {
 		return r.initArray(&arrayObject{}, nil, n)
 	}
-	ao, items := r.newArrayStorage(int(n), int(n))
+	ao, items, err := r.newArrayStorage(int(n), int(n))
+	if err != nil {
+		// Same shape as a sparse array: length n, no dense storage.
+		return r.initArray(&arrayObject{}, nil, n)
+	}
 	hole := Hole()
 	for i := range items {
 		items[i] = hole

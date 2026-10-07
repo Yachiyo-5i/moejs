@@ -371,7 +371,11 @@ func (r *Realm) setFromTypedArray(ta *typedArray, off float64, src *typedArray, 
 		return r.copyBytes(ta.bytes(to, sn), src.bytes(0, sn))
 	}
 	if src.view.data == ta.view.data {
-		clone := make([]byte, sn<<elemShift[src.kind])
+		nbyte := sn << elemShift[src.kind]
+		clone, err := r.allocBytes(nbyte, nbyte)
+		if err != nil {
+			return err
+		}
 		if err := r.copyBytes(clone, src.bytes(0, sn)); err != nil {
 			return err
 		}
@@ -786,6 +790,11 @@ func typedArrayFilter(r *Realm, this Value, args []Value) (Value, error) {
 		return Undefined(), err
 	}
 	size := elemSize[ta.kind]
+	// kept holds at most one copy of the array. Charge that before the
+	// callback loop grows it past the budget.
+	if err := r.charge(allocBufferBase + int64(n)*int64(size)); err != nil {
+		return Undefined(), err
+	}
 	var kept []byte
 	var holes []int
 	thisArg := Arg(args, 1)

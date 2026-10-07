@@ -30,8 +30,12 @@ import "encoding/json"
 // parsed text and keep it alive for as long as the host holds it:
 // strings.Clone a string kept beyond the request.
 func (rt *Runtime) Unmarshal(v Value, target any) (err error) {
+	rt.beginAlloc()
 	ok, err := rt.realm.Unmarshal(v, target)
 	if ok || err != nil {
+		if err == nil {
+			err = rt.finishOuter(nil)
+		}
 		return err
 	}
 	data, err := rt.AppendJSON(nil, v)
@@ -67,8 +71,9 @@ func (rt *Runtime) Unmarshal(v Value, target any) (err error) {
 // for as long as the host holds it: strings.Clone a string kept beyond the
 // request.
 func (rt *Runtime) ToGoInto(v Value, target any) error {
+	rt.beginAlloc()
 	if rt.realm.ToGoInto(v, target) {
-		return nil
+		return rt.finishOuter(nil)
 	}
 	if rt.realm.ResultTooLarge() {
 		return ErrResultTooLarge

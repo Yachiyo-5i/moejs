@@ -18,9 +18,24 @@ func arrayCreateCheck(r *Realm, n int64) error {
 
 // copyStorage returns empty storage for an n-element copy of o: exact (and
 // co-allocated when small) unless n far exceeds what o stores, in which
-// case it grows as the reads succeed.
-func (r *Realm) copyStorage(o *Object, n int64) (*arrayObject, []Value) {
-	return r.newArrayStorage(0, int(min(n, int64(len(o.elements))+interruptStride)))
+// case it grows as the reads succeed. The whole result is charged first.
+// A budget error allocates nothing.
+func (r *Realm) copyStorage(o *Object, n int64) (*arrayObject, []Value, error) {
+	if n < 0 {
+		n = 0
+	}
+	if err := r.charge(allocObjectBase + n*allocValue); err != nil {
+		return nil, nil, err
+	}
+	c := int(n)
+	if lim := int64(len(o.elements)) + int64(interruptStride); n > lim {
+		if lim < 0 {
+			lim = 0
+		}
+		c = int(lim)
+	}
+	ao, items := r.arrayStorage(0, c)
+	return ao, items, nil
 }
 
 // appendDense appends src with holes read as undefined; only valid when o
@@ -116,7 +131,10 @@ func arrayProtoToReversed(r *Realm, this Value, args []Value) (Value, error) {
 	if err := arrayCreateCheck(r, n); err != nil {
 		return Undefined(), err
 	}
-	ao, items := r.copyStorage(o, n)
+	ao, items, err := r.copyStorage(o, n)
+	if err != nil {
+		return Undefined(), err
+	}
 	if plainArray(o) {
 		for k := n - 1; k >= 0; k-- {
 			v := o.elements[k]
@@ -154,7 +172,10 @@ func arrayProtoToSorted(r *Realm, this Value, args []Value) (Value, error) {
 	if err := arrayCreateCheck(r, n); err != nil {
 		return Undefined(), err
 	}
-	ao, items := r.copyStorage(o, n)
+	ao, items, err := r.copyStorage(o, n)
+	if err != nil {
+		return Undefined(), err
+	}
 	if plainArray(o) {
 		items = appendDense(items, o.elements)
 	} else if items, err = appendRead(r, items, o, 0, n); err != nil {
@@ -198,7 +219,10 @@ func arrayProtoToSpliced(r *Realm, this Value, args []Value) (Value, error) {
 	if err := arrayCreateCheck(r, newLen); err != nil {
 		return Undefined(), err
 	}
-	ao, items := r.copyStorage(o, newLen)
+	ao, items, err := r.copyStorage(o, newLen)
+	if err != nil {
+		return Undefined(), err
+	}
 	// The coercions above may have resized the array; n must still
 	// describe the storage.
 	if plainArray(o) && int64(len(o.elements)) == n {
@@ -238,7 +262,10 @@ func arrayProtoWith(r *Realm, this Value, args []Value) (Value, error) {
 	}
 	idx := int64(rel)
 	value := Arg(args, 1)
-	ao, items := r.copyStorage(o, n)
+	ao, items, err := r.copyStorage(o, n)
+	if err != nil {
+		return Undefined(), err
+	}
 	if plainArray(o) && int64(len(o.elements)) == n {
 		items = appendDense(items, o.elements)
 		items[idx] = value

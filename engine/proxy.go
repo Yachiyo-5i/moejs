@@ -738,7 +738,12 @@ func proxyCall(r *Realm, fd *FunctionData, this Value, args []Value) (Value, err
 	if trap.IsUndefined() {
 		return r.CallObject(target, this, args)
 	}
-	argArray := r.NewArrayFromSlice(slices.Clone(args))
+	cloned, err := r.allocValues(len(args))
+	if err != nil {
+		return Undefined(), err
+	}
+	copy(cloned, args)
+	argArray := r.NewArrayFromSlice(cloned)
 	return r.callTrap(trap, handler, ObjectValue(target), this, ObjectValue(argArray))
 }
 
@@ -752,7 +757,12 @@ func (r *Realm) proxyConstruct(pd *proxyData, args []Value, newTarget *Object) (
 	if trap.IsUndefined() {
 		return r.Construct(ObjectValue(target), args, newTarget)
 	}
-	argArray := r.NewArrayFromSlice(slices.Clone(args))
+	cloned, err := r.allocValues(len(args))
+	if err != nil {
+		return Undefined(), err
+	}
+	copy(cloned, args)
+	argArray := r.NewArrayFromSlice(cloned)
 	v, err := r.callTrap(trap, handler, ObjectValue(target), ObjectValue(argArray), ObjectValue(newTarget))
 	if err != nil {
 		return Undefined(), err

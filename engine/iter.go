@@ -242,7 +242,10 @@ func (r *Realm) iterRest(it, pos *Value) (Value, error) {
 	var items []Value
 	if v := *it; v.IsObject() && pos.IsNumber() {
 		if n := int(v.AsObject().internal.(*ArrayData).length) - int(pos.AsNumber()); n > 0 {
-			items = make([]Value, 0, n)
+			var err error
+			if items, err = r.allocValuesCap(n); err != nil {
+				return Undefined(), err
+			}
 		}
 	}
 	for k := int64(0); ; k++ {
@@ -256,7 +259,9 @@ func (r *Realm) iterRest(it, pos *Value) (Value, error) {
 		if done {
 			return ObjectValue(r.NewArrayFromSlice(items)), nil
 		}
-		items = append(items, v)
+		if items, err = r.appendCharged(items, v); err != nil {
+			return Undefined(), err
+		}
 	}
 }
 

@@ -755,7 +755,11 @@ func (r *Realm) performCombine(ir *iterRecord, c *Object, pc *promiseCapability,
 			return r.capResolve(pc, ObjectValue(r.NewArrayFromSlice(s.values)))
 		}
 		if s != nil {
-			s.values = append(s.values, Undefined())
+			// One slot per element. Charged before the slice grows so a
+			// long iterable cannot allocate the result and return success.
+			if s.values, err = r.appendCharged(s.values, Undefined()); err != nil {
+				return err
+			}
 		}
 		np, err := r.callStack(resolve, ObjectValue(c), next)
 		if err != nil {

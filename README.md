@@ -266,7 +266,8 @@ covers pools, module graphs, value conversion, promises and errors, and the
 [package documentation](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)
 describes every function.
 
-`Options.MaxAllocBytes` limits the estimated bytes one call allocates.
+`Options.MaxAllocBytes` limits the estimated bytes one outermost call
+allocates. After `ErrAllocLimit`, discard the runtime.
 `Options.MaxResultBytes` limits one conversion to a Go value or to JSON.
 The [guide](docs/guide.md) explains both.
 
