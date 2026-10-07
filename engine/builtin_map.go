@@ -237,6 +237,9 @@ func mapProtoSet(r *Realm, this Value, args []Value) (Value, error) {
 	if err != nil {
 		return Undefined(), err
 	}
+	if err := r.charge(allocMapEntry); err != nil {
+		return Undefined(), err
+	}
 	c.set(Arg(args, 0), Arg(args, 1))
 	return this, nil
 }

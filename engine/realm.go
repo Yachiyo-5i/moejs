@@ -71,6 +71,10 @@ type RealmOptions struct {
 	// with Realm.SetDynamicCodeDisabled. Code the host compiles is not
 	// affected.
 	DisableDynamicCode bool
+
+	// MaxResultBytes bounds one host export (ToGo, Unmarshal, ToGoInto,
+	// AppendJSON). Zero means no bound. It does not interrupt the realm.
+	MaxResultBytes int64
 }
 
 // Intrinsics holds the intrinsic objects of a realm. A realm points at its
@@ -171,7 +175,8 @@ type Realm struct {
 	// the realm's caches exist (intern.go). jobsPending is set when a job is
 	// queued or an object kept alive for the current job, and cleared when
 	// the end of a job leaves neither (jobs.go). They and callDepth share two
-	// words with interruptFlag: the Realm is exactly a 288-byte size class.
+	// words with interruptFlag. The budget counters sit at the end of the
+	// struct: the Realm is the 320-byte size class.
 	coldGlobals      uint32
 	sharedIntrinsics bool
 	buildingShared   bool
@@ -213,6 +218,15 @@ type Realm struct {
 
 	// boot holds the bootstrap slabs; dropped after the intrinsics are built.
 	boot *bootstrapSlabs
+
+	// allocUsed/allocMax are the allocation budget of the current Call, Load
+	// or RunScript (alloc.go). allocMax <= 0 means unlimited, and charge is
+	// then one comparison. resultUsed/resultMax bound one host export.
+	// The four words put a Realm in the 320-byte size class.
+	allocUsed  int64
+	allocMax   int64
+	resultUsed int64
+	resultMax  int64
 }
 
 // bootstrapSlabs back the objects, slots, functions and shapes of the
@@ -281,10 +295,18 @@ func NewRealmWith(opts RealmOptions) *Realm {
 		r = newBareRealm()
 		r.buildIntrinsics()
 		r.boot = nil
+		// newBareRealm leaves allocMax negative so object allocation keeps
+		// using the bootstrap slab. Zero is the unlimited fast path.
+		if r.allocMax < 0 {
+			r.allocMax = 0
+		}
 	}
 	r.SetTimeZone(opts.TimeZone)
 	r.SetMaxDynamicSource(opts.MaxDynamicSource)
 	r.SetDynamicCodeDisabled(opts.DisableDynamicCode)
+	if opts.MaxResultBytes > 0 {
+		r.resultMax = opts.MaxResultBytes
+	}
 	return r
 }
 
@@ -303,6 +325,9 @@ func newBareRealm() *Realm {
 	r := &own.realm
 	*r = Realm{
 		Intrinsics: &own.intr,
+		// Negative allocMax is unlimited, and it keeps newObject on the slab
+		// path until buildIntrinsics finishes and NewRealmWith stores 0.
+		allocMax: -1,
 		boot: &bootstrapSlabs{
 			objs:   make([]Object, 0, bootstrapObjects),
 			slots:  make([]Value, 0, bootstrapSlots),
@@ -674,6 +699,10 @@ func (o *Object) ReserveSlots(r *Realm, n int) {
 
 // newFunctionObjectCap is newFunctionObject with extra slot capacity.
 func (r *Realm) newFunctionObjectCap(name *String, length int, kind FuncKind, capacity int) (*Object, *FunctionData) {
+	// A function object is one allocation of about 240 bytes. chargeNote
+	// publishes an overrun; the object is still created so callers that
+	// cannot return an error keep a value until the next interrupt check.
+	r.chargeNote(allocFuncObject)
 	fo := &funcObject{}
 	o := &fo.obj
 	o.shape = r.functionShape()

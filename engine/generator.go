@@ -171,7 +171,11 @@ func (r *Realm) newGenerator(fn *Object, fd *FunctionData, this Value) (*Object,
 		proto = pv.AsObject()
 	}
 	r.markPrototype(proto)
-	gen := &generatorObject{g: genFrame{fn: fn, fd: fd, this: this, regs: make([]Value, fd.code.NumRegs)}}
+	nregs := int(fd.code.NumRegs)
+	if r.charge(allocFrameBase+int64(nregs)*allocValue) != nil && nregs > 4096 {
+		return nil, r.CheckInterrupt()
+	}
+	gen := &generatorObject{g: genFrame{fn: fn, fd: fd, this: this, regs: make([]Value, nregs)}}
 	o := initObject(&gen.obj, ClassGenerator, r.rootShapeFor(proto))
 	o.internal = &gen.g
 	return o, nil
@@ -231,7 +235,11 @@ func (r *Realm) resumeFrame(g *genFrame, v, mode Value) (Value, error) {
 	base := st.sp
 	top := base + len(g.regs)
 	if top > len(st.stack) {
-		r.growStack(top)
+		if r.allocMax <= 0 {
+			r.growStackFast(top)
+		} else {
+			r.growStackLimited(top)
+		}
 	}
 	regs := st.stack[base:top:top]
 	copy(regs, g.regs)

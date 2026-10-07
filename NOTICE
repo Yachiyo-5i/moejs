@@ -5,3 +5,5 @@ This is a fork maintained at https://github.com/Yachiyo-5i/moejs.
 Modifications by Yachiyo-5i:
 - 2026-10: changed the Go module path from github.com/Calcium-Ion/moejs to
   github.com/Yachiyo-5i/moejs in go.mod, bench/go.mod, all Go import paths and the docs.
+- 2026-10: added a per-call allocation budget (Options.MaxAllocBytes) and a
+  separate host-export bound (Options.MaxResultBytes).

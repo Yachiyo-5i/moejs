@@ -52,6 +52,13 @@ type arrayObject8 struct {
 // newArrayStorage returns an array object and element storage of length n
 // with capacity for at least c >= n elements, co-allocated when c is small.
 func (r *Realm) newArrayStorage(n, c int) (*arrayObject, []Value) {
+	if c > smallArrayMax {
+		if r.charge(allocObjectBase+int64(c)*allocValue) != nil {
+			return &arrayObject{}, nil
+		}
+		return &arrayObject{}, make([]Value, n, c)
+	}
+	r.chargeNote(allocObjectBase + int64(c)*allocValue)
 	switch {
 	case c <= 2:
 		x := &arrayObject2{}
@@ -76,6 +83,7 @@ func (r *Realm) NewArray(items ...Value) *Object {
 
 // NewArrayFromSlice creates a dense array that takes ownership of items.
 func (r *Realm) NewArrayFromSlice(items []Value) *Object {
+	r.chargeNote(allocObjectBase + int64(cap(items))*allocValue)
 	return r.initArray(&arrayObject{}, items, uint32(len(items)))
 }
 

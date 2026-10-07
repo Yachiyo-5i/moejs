@@ -105,6 +105,7 @@ func (r *Realm) dynMeta(code *bytecode.Function, ref *scriptOrModule) *dynRoot {
 // scriptClosure returns a function object of the dynamic script template of
 // d: instantiateTopLevel with its meta.
 func (r *Realm) scriptClosure(d *dynRoot) *Object {
+	r.chargeNote(allocEnvBase + int64(len(d.code.CaptureLayout))*allocValue)
 	fn, _ := r.newClosure(d.code, &d.funcMeta, NewEnv(nil, len(d.code.CaptureLayout)), Undefined())
 	return fn
 }

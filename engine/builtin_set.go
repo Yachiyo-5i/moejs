@@ -76,6 +76,9 @@ func setProtoAdd(r *Realm, this Value, args []Value) (Value, error) {
 	if err != nil {
 		return Undefined(), err
 	}
+	if err := r.charge(allocMapEntry); err != nil {
+		return Undefined(), err
+	}
 	c.add(Arg(args, 0))
 	return this, nil
 }

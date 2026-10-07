@@ -107,11 +107,11 @@ func TestBootstrapSlabsFilled(t *testing.T) {
 }
 
 // TestRealmSizeClass pins the realm structs to their size classes: a shared
-// realm is the Realm alone (exactly the 288-byte class; state it rarely uses
-// belongs in realmLazy), a mutable one the Realm with its Intrinsics
-// (640-byte class with the 8-byte malloc header).
+// realm is the Realm alone (the 320-byte class, which includes the allocation
+// budget counters; state it rarely uses belongs in realmLazy), a mutable one
+// the Realm with its Intrinsics (640-byte class with the 8-byte malloc header).
 func TestRealmSizeClass(t *testing.T) {
-	assert.Equal(t, uintptr(288), unsafe.Sizeof(Realm{}))
+	assert.Equal(t, uintptr(320), unsafe.Sizeof(Realm{}))
 	// extIntrinsics (with its malloc header) keeps to the 1152-byte class.
 	assert.LessOrEqual(t, unsafe.Sizeof(extIntrinsics{})+8, uintptr(1152))
 	assert.LessOrEqual(t, unsafe.Sizeof(ownRealm{})+8, uintptr(640))

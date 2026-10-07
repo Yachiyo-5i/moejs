@@ -217,6 +217,9 @@ func weakMapConstruct(r *Realm, args []Value, newTarget *Object) (Value, error) 
 		if !canBeHeldWeakly(k) {
 			return r.invalidWeakKey(k)
 		}
+		if err := r.charge(allocMapEntry); err != nil {
+			return err
+		}
 		c.set(k, v)
 		return nil
 	})
@@ -270,6 +273,9 @@ func weakMapProtoSet(r *Realm, this Value, args []Value) (Value, error) {
 	if !canBeHeldWeakly(k) {
 		return Undefined(), r.invalidWeakKey(k)
 	}
+	if err := r.charge(allocMapEntry); err != nil {
+		return Undefined(), err
+	}
 	c.set(k, Arg(args, 1))
 	return this, nil
 }
@@ -307,6 +313,9 @@ func weakSetConstruct(r *Realm, args []Value, newTarget *Object) (Value, error) 
 		if !canBeHeldWeakly(v) {
 			return r.invalidWeakValue(v)
 		}
+		if err := r.charge(allocMapEntry); err != nil {
+			return err
+		}
 		c.set(v, Undefined())
 		return nil
 	})
@@ -324,6 +333,9 @@ func weakSetProtoAdd(r *Realm, this Value, args []Value) (Value, error) {
 	v := Arg(args, 0)
 	if !canBeHeldWeakly(v) {
 		return Undefined(), r.invalidWeakValue(v)
+	}
+	if err := r.charge(allocMapEntry); err != nil {
+		return Undefined(), err
 	}
 	c.set(v, Undefined())
 	return this, nil

@@ -583,7 +583,10 @@ func arrayProtoUnshift(r *Realm, this Value, args []Value) (Value, error) {
 			return Undefined(), r.TypeError("Unshifting %d elements on an array-like of length %d is disallowed, as the total surpasses 2**53-1", argc, n)
 		}
 		if mutableArray(o) && n+argc <= math.MaxUint32 {
-			ne := growWithHoles(o.elements, int(n+argc))
+			ne, err := r.growElements(o.elements, int(n+argc))
+			if err != nil {
+				return Undefined(), err
+			}
 			copy(ne[argc:], ne[:n])
 			copy(ne, args)
 			o.elements = ne
@@ -650,6 +653,9 @@ func arrayProtoSplice(r *Realm, this Value, args []Value) (Value, error) {
 	// The coercions above ran user code that may have resized the array;
 	// the in-place rewrite is only valid while n describes the storage.
 	if species == nil && mutableArray(o) && int64(len(o.elements)) == n && newLen <= math.MaxUint32 {
+		if err := r.charge(int64(delCount) * allocValue); err != nil {
+			return Undefined(), err
+		}
 		removed := make([]Value, delCount)
 		copy(removed, o.elements[start:start+delCount])
 		switch {
@@ -661,7 +667,10 @@ func arrayProtoSplice(r *Realm, this Value, args []Value) (Value, error) {
 			o.elements = o.elements[:newLen]
 			copy(o.elements[start:], items)
 		default:
-			ne := growWithHoles(o.elements, int(newLen))
+			ne, err := r.growElements(o.elements, int(newLen))
+			if err != nil {
+				return Undefined(), err
+			}
 			copy(ne[start+insertCount:], ne[start+delCount:n])
 			copy(ne[start:], items)
 			o.elements = ne
@@ -1325,6 +1334,9 @@ func join(r *Realm, o *Object, args []Value, size int64) (Value, error) {
 	}
 	if size >= 0 {
 		if size += (n - 1) * int64(sep.Len()); size <= int64(maxStringLength) {
+			if err := r.charge(size + allocStringHdr); err != nil {
+				return Undefined(), err
+			}
 			sb.Grow(int(size))
 		}
 	}
@@ -1736,7 +1748,11 @@ func arrayProtoMap(r *Realm, this Value, args []Value) (Value, error) {
 		a = r.NewArrayLen(uint32(n))
 		dense = n <= int64(len(o.elements))+denseGrowLimit
 		if dense && len(a.elements) != int(n) {
-			a.elements = growWithHoles(a.elements, int(n))
+			els, gerr := r.growElements(a.elements, int(n))
+			if gerr != nil {
+				return Undefined(), gerr
+			}
+			a.elements = els
 		}
 	}
 	thisArg := Arg(args, 1)

@@ -40,6 +40,29 @@ interrupt while they work.
 An interrupt that arrives while nothing runs stops the next call, so the
 host calls `ClearInterrupt` before it reuses the runtime.
 
+### Allocation budget
+
+`Options.MaxAllocBytes` is an estimate of the bytes one `Call`, `Load` or
+`RunScript` allocates, including the promise jobs that run before it
+returns. The count starts at zero on every call and only grows. Zero, the
+default, means no budget.
+
+The estimate is not the live heap. It does not credit memory the garbage
+collector frees, and it rounds allocations up. A call that would pass the
+budget is interrupted with `*AllocLimitError` and returns
+`*InterruptedError`. `errors.Is(err, ErrAllocLimit)` reports it. The script
+cannot catch that interrupt: `catch` and `finally` do not run. After
+`ClearInterrupt` the same runtime can run again.
+
+`SetMaxAllocBytes` changes the budget used by the next call.
+`AllocatedBytes` reports what the current or previous call charged.
+
+`Options.MaxResultBytes` is a separate bound on what `ToGo`, `Unmarshal`,
+`ToGoInto` and `AppendJSON` produce from one value. Passing it returns
+`ErrResultTooLarge` and does not interrupt the runtime. Zero means no bound.
+It is what stops a small value that repeats one object from expanding into
+a huge Go value or JSON text.
+
 ### Objects belong to one runtime
 
 Objects that a runtime's JavaScript creates belong to that runtime. Using an

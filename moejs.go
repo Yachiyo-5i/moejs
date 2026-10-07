@@ -69,6 +69,9 @@ type (
 	Exception = engine.Exception
 	// InterruptedError is returned when Interrupt stopped running code.
 	InterruptedError = engine.InterruptedError
+	// AllocLimitError is the Value of the *InterruptedError a call returns
+	// when it runs out of its allocation budget.
+	AllocLimitError = engine.AllocLimitError
 )
 
 // Arg returns args[i], or undefined when there are fewer arguments.
@@ -103,6 +106,14 @@ var (
 	// ErrModulePending is Load's error for a module with top-level await
 	// whose evaluation still awaits once no job is left.
 	ErrModulePending = engine.ErrModulePending
+	// ErrAllocLimit is the sentinel for an allocation budget overrun.
+	// errors.Is reports it for the *InterruptedError a call returns,
+	// because that error unwraps to an *AllocLimitError.
+	ErrAllocLimit = engine.ErrAllocLimit
+	// ErrResultTooLarge is returned by ToGo, Unmarshal, ToGoInto and
+	// AppendJSON when the estimated result exceeds MaxResultBytes. The
+	// runtime is not interrupted.
+	ErrResultTooLarge = engine.ErrResultTooLarge
 )
 
 // SyntaxError is a parse or early error in module source.

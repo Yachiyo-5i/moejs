@@ -263,6 +263,7 @@ func (r *Realm) RunScript(code *bytecode.Function) (Value, error) {
 // module or script template.
 func (r *Realm) instantiateTopLevel(code *bytecode.Function) (*Object, *Env) {
 	meta := r.metaFor(code)
+	r.chargeNote(allocEnvBase + int64(len(code.CaptureLayout))*allocValue)
 	env := NewEnv(nil, len(code.CaptureLayout))
 	fn, fd := r.newClosure(code, meta, env, Undefined())
 	return fn, fd.env
@@ -371,7 +372,11 @@ func (r *Realm) enterFrame(fn *Object, fd *FunctionData, this Value, args []Valu
 	base := st.sp
 	top := base + int(code.NumRegs)
 	if top > len(st.stack) {
-		r.growStack(top)
+		if r.allocMax <= 0 {
+			r.growStackFast(top)
+		} else {
+			r.growStackLimited(top)
+		}
 	}
 	regs := st.stack[base:top:top]
 	np := int(code.NumParams)
@@ -398,6 +403,7 @@ func (r *Realm) enterFrame(fn *Object, fd *FunctionData, this Value, args []Valu
 	}
 	env := fd.env
 	if layout := code.CaptureLayout; len(layout) > 0 && code.Kind != bytecode.KindModule && code.Kind != bytecode.KindScript {
+		r.chargeNote(allocEnvBase + int64(len(layout))*allocValue)
 		env = newEnvSized(fd.env, len(layout))
 		for i, reg := range layout {
 			if reg != bytecode.NoRegister {
@@ -440,6 +446,31 @@ type env4 struct {
 	buf [4]Value
 }
 
+// envSized charges a closure environment and allocates it. It stays out of
+// line so the interpreter loop does not grow past the inliner's big-function
+// limit.
+//
+//go:noinline
+func (r *Realm) envSized(parent *Env, n int) *Env {
+	r.chargeNote(allocEnvBase + int64(n)*allocValue)
+	return newEnvSized(parent, n)
+}
+
+// pushArrayHole appends one hole to a dense array literal, charging the
+// growth first. Out of line for the same reason as envSized. The unlimited
+// path inlines growWithHoles in run instead; this is only the budget arm.
+//
+//go:noinline
+func (r *Realm) pushArrayHole(arr *Object) error {
+	els, err := r.growElements(arr.elements, len(arr.elements)+1)
+	if err != nil {
+		return err
+	}
+	arr.elements = els
+	arr.internal.(*ArrayData).length = uint32(len(arr.elements))
+	return nil
+}
+
 // newEnvSized is NewEnv with inline storage for up to four slots.
 func newEnvSized(parent *Env, n int) *Env {
 	var e *Env
@@ -477,7 +508,11 @@ func newEnvSized(parent *Env, n int) *Env {
 func (r *Realm) pushArgs(n int) []Value {
 	st := &r.interp
 	if st.sp+n > len(st.stack) {
-		r.growStack(st.sp + n)
+		if r.allocMax <= 0 {
+			r.growStackFast(st.sp + n)
+		} else {
+			r.growStackLimited(st.sp + n)
+		}
 	}
 	args := st.stack[st.sp : st.sp+n : st.sp+n]
 	st.sp += n
@@ -486,12 +521,35 @@ func (r *Realm) pushArgs(n int) []Value {
 
 func (r *Realm) popArgs(n int) { r.interp.sp -= n }
 
-// growStack enlarges the register stack to hold at least top registers.
-func (r *Realm) growStack(top int) {
+// growStackFast enlarges the register stack to hold at least top registers.
+// It stays small enough to inline into the interpreter. Callers that may
+// have a budget use growStackLimited instead; folding that call into this
+// function pushes it over the inliner budget.
+func (r *Realm) growStackFast(top int) {
 	st := &r.interp
 	n := max(initialStackSize, 2*len(st.stack))
 	for n < top {
 		n *= 2
+	}
+	ns := make([]Value, n)
+	copy(ns, st.stack[:st.sp])
+	st.stack = ns
+}
+
+// growStackLimited is growStackFast for a realm with a budget. A refused
+// growth larger than 256 KiB is skipped. A smaller one still grows, so the
+// next back-edge can return the interrupt instead of panicking.
+//
+//go:noinline
+func (r *Realm) growStackLimited(top int) {
+	st := &r.interp
+	n := max(initialStackSize, 2*len(st.stack))
+	for n < top {
+		n *= 2
+	}
+	extra := int64(n-len(st.stack)) * allocValue
+	if err := r.charge(extra + allocFrameBase); err != nil && extra > 256<<10 {
+		return
 	}
 	ns := make([]Value, n)
 	copy(ns, st.stack[:st.sp])

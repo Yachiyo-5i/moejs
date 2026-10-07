@@ -80,6 +80,7 @@ func (r *Realm) Unmarshal(v Value, target any) (complete bool, err error) {
 	// Nothing is written unless all of v is plain: then AppendJSON cannot
 	// fail or run code, and a walk that stops (a value the target's type
 	// rejects) leaves the round trip to write every part again.
+	r.resetResult()
 	d := jsonDecoder{r: r, left: 4096, copyHosts: jsonTypeOf(rv.Type()).holdsAny}
 	// plain checks the bound before each container; the leaves after the
 	// last one count here.
@@ -116,6 +117,7 @@ func (r *Realm) ToGoInto(v Value, target any) (complete bool) {
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || jsonTypeOf(rv.Type()).custom {
 		return false
 	}
+	r.resetResult()
 	d := jsonDecoder{r: r, left: 4096, togo: true, copyHosts: jsonTypeOf(rv.Type()).holdsAny}
 	if !d.plain(v, 0) || !d.within(0) {
 		return false
@@ -648,6 +650,10 @@ func (d *jsonDecoder) checkpoint() bool {
 	if !d.togo { // ToGo observes no interrupt
 		d.err = d.r.CheckInterrupt()
 	}
+	if d.err == nil && d.r.resultMax > 0 && d.size > d.r.resultMax {
+		d.r.resultUsed = d.size
+		d.err = ErrResultTooLarge
+	}
 	return d.err == nil && d.size <= int64(maxStringLength)
 }
 
@@ -657,6 +663,11 @@ func (d *jsonDecoder) checkpoint() bool {
 // allowed.
 func (d *jsonDecoder) within(n int64) bool {
 	d.size += n
+	if d.r.resultMax > 0 && d.size > d.r.resultMax {
+		d.r.resultUsed = d.size
+		d.err = ErrResultTooLarge
+		return false
+	}
 	return d.size <= int64(maxStringLength)
 }
 
@@ -664,6 +675,11 @@ func (d *jsonDecoder) within(n int64) bool {
 // size bytes of brackets and separators.
 func (d *jsonDecoder) open(n int, size int64) bool {
 	d.size += size
+	if d.r.resultMax > 0 && d.size > d.r.resultMax {
+		d.r.resultUsed = d.size
+		d.err = ErrResultTooLarge
+		return false
+	}
 	if d.left -= n + 1; d.left > 0 {
 		return d.size <= int64(maxStringLength)
 	}

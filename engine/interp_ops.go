@@ -97,7 +97,11 @@ func (r *Realm) callSetter(a *Accessor, receiver Value, key PropertyKey, v Value
 	st := &r.interp
 	sp := st.sp
 	if sp+1 > len(st.stack) {
-		r.growStack(sp + 1)
+		if r.allocMax <= 0 {
+			r.growStackFast(sp + 1)
+		} else {
+			r.growStackLimited(sp + 1)
+		}
 	}
 	st.stack[sp] = v
 	st.sp = sp + 1
@@ -589,7 +593,11 @@ func (r *Realm) spreadArgs(top int, v Value) ([]Value, error) {
 	n := int(o.internal.(*ArrayData).length)
 	st := &r.interp
 	if top+n > len(st.stack) {
-		r.growStack(top + n)
+		if r.allocMax <= 0 {
+			r.growStackFast(top + n)
+		} else {
+			r.growStackLimited(top + n)
+		}
 	}
 	argv := st.stack[top : top+n : top+n]
 	for i := range n {

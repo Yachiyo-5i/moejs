@@ -130,7 +130,9 @@ func (r *Realm) addPrivate(o *Object, pn *PrivateName, v Value, attrs uint8) err
 	}
 	o.materializeHost() // a host placeholder (hostlazy.go) has no storage yet
 	if o.flags&flagDict == 0 && o.shape.shared {
-		o.toDictionary(r)
+		if !o.toDictionary(r) {
+			return r.CheckInterrupt()
+		}
 	}
 	o.addNamed(r, PrivateKey(pn), propCell{value: v, attrs: attrs})
 	return nil

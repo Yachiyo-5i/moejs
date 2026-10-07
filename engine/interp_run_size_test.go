@@ -57,7 +57,9 @@ func TestRunIsNotBig(t *testing.T) {
 
 	const rule = "run has reached the 5,000 IR nodes of a big function, which inlines only callees of cost 20 or less: move code out of run (DESIGN, \"run stays below 5,000 IR nodes\")"
 	inlined := 0
-	site := regexp.MustCompile(`^\./interp_run\.go:(\d+):\d+: inlining call to NumberValue$`)
+	// Go 1.26 prints the path relative to the module (engine/interp_run.go).
+	// Earlier toolchains printed ./interp_run.go from the package directory.
+	site := regexp.MustCompile(`^(?:\./)?(?:engine/)?interp_run\.go:(\d+):\d+: inlining call to NumberValue$`)
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.Contains(line, "function (*Realm).run considered 'big'") {
 			t.Fatalf("%s\n%s", line, rule)

@@ -266,6 +266,10 @@ covers pools, module graphs, value conversion, promises and errors, and the
 [package documentation](https://pkg.go.dev/github.com/Yachiyo-5i/moejs)
 describes every function.
 
+`Options.MaxAllocBytes` limits the estimated bytes one call allocates.
+`Options.MaxResultBytes` limits one conversion to a Go value or to JSON.
+The [guide](docs/guide.md) explains both.
+
 moejs ships a `default.pgo` profile recorded from the plugin workload. Go
 applies a profile automatically only from the main package's directory, so
 pass it when you build:

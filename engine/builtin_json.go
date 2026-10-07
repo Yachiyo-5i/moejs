@@ -413,6 +413,9 @@ func (p *jsonParser) strSlow(start, i int) (*String, error) {
 	src := p.src
 	var sb StringBuilder
 	var units []uint16 // scratch for the runs that are not ASCII
+	if err := p.r.charge(int64(len(src)-start) + allocStringHdr); err != nil {
+		return nil, err
+	}
 	sb.Grow(i - start + 16)
 	run := start
 	for i < len(src) {
@@ -611,8 +614,9 @@ func (p *jsonParser) object() (Value, error) {
 				}
 				index[k] = len(seg)
 			}
-			p.keys = append(p.keys, k)
-			p.stack = append(p.stack, v)
+			if err := p.pushJSON(k, v); err != nil {
+				return Undefined(), err
+			}
 		}
 		p.skipWS()
 		if p.pos >= len(p.src) {
@@ -628,7 +632,10 @@ func (p *jsonParser) object() (Value, error) {
 		return Undefined(), p.unexpected()
 	}
 	keys, vals := p.keys[kbase:], p.stack[base:]
-	o := r.buildJSONObject(keys, vals)
+	o, err := r.buildJSONObject(keys, vals)
+	if err != nil {
+		return Undefined(), err
+	}
 	clear(p.stack[base:])
 	clear(p.keys[kbase:])
 	p.stack = p.stack[:base]
@@ -639,7 +646,7 @@ func (p *jsonParser) object() (Value, error) {
 
 // buildJSONObject creates an object with the given own properties in order,
 // walking the realm's shape tree so equal key sequences share a Shape.
-func (r *Realm) buildJSONObject(keys []PropertyKey, vals []Value) *Object {
+func (r *Realm) buildJSONObject(keys []PropertyKey, vals []Value) (*Object, error) {
 	hasIndex := false
 	for _, k := range keys {
 		if k.IsIndex() {
@@ -651,8 +658,11 @@ func (r *Realm) buildJSONObject(keys []PropertyKey, vals []Value) *Object {
 		o := r.NewObject()
 		for i, k := range keys {
 			o.addProp(r, k, propCell{value: vals[i], attrs: attrDefault})
+			if r.allocMax > 0 && r.Interrupted() {
+				return nil, r.CheckInterrupt()
+			}
 		}
-		return o
+		return o, nil
 	}
 	shape := r.plainRoot
 	for _, k := range keys {
@@ -686,11 +696,14 @@ func (r *Realm) buildJSONObject(keys []PropertyKey, vals []Value) *Object {
 		x := &object8{}
 		o, slots = &x.Object, x.buf[:]
 	default:
+		if err := r.charge(allocObjectBase + int64(len(vals))*allocValue); err != nil {
+			return nil, err
+		}
 		o, slots = new(Object), make([]Value, len(vals))
 	}
 	copy(slots, vals)
 	o.slots = slots
-	return initObject(o, ClassObject, shape)
+	return initObject(o, ClassObject, shape), nil
 }
 
 // A parsed object or array of up to eight entries is one allocation of the
@@ -732,7 +745,7 @@ type (
 )
 
 // newJSONArray creates a dense array holding a copy of vals.
-func (r *Realm) newJSONArray(vals []Value) *Object {
+func (r *Realm) newJSONArray(vals []Value) (*Object, error) {
 	var ao *arrayObject
 	var items []Value
 	switch len(vals) {
@@ -761,10 +774,39 @@ func (r *Realm) newJSONArray(vals []Value) *Object {
 		x := &arrayObject8{}
 		ao, items = &x.arrayObject, x.buf[:]
 	default:
+		if err := r.charge(allocObjectBase + int64(len(vals))*allocValue); err != nil {
+			return nil, err
+		}
 		ao, items = &arrayObject{}, make([]Value, len(vals))
 	}
 	copy(items, vals)
-	return r.initArray(ao, items, uint32(len(vals)))
+	return r.initArray(ao, items, uint32(len(vals))), nil
+}
+
+// pushValue appends v, charging a growth of the parse stack before it.
+func (p *jsonParser) pushValue(v Value) error {
+	if len(p.stack) == cap(p.stack) {
+		if err := p.r.chargeSliceGrow(cap(p.stack), len(p.stack)+1); err != nil {
+			return err
+		}
+	}
+	p.stack = append(p.stack, v)
+	return nil
+}
+
+// pushJSON appends one object property. Keys and values are both Values,
+// so a growth is charged as element storage.
+func (p *jsonParser) pushJSON(k PropertyKey, v Value) error {
+	if len(p.keys) == cap(p.keys) {
+		if err := p.r.chargeSliceGrow(cap(p.keys), len(p.keys)+1); err != nil {
+			return err
+		}
+	}
+	if err := p.pushValue(v); err != nil {
+		return err
+	}
+	p.keys = append(p.keys, k)
+	return nil
 }
 
 func (p *jsonParser) array() (Value, error) {
@@ -785,7 +827,9 @@ func (p *jsonParser) array() (Value, error) {
 		if err != nil {
 			return Undefined(), err
 		}
-		p.stack = append(p.stack, v)
+		if err := p.pushValue(v); err != nil {
+			return Undefined(), err
+		}
 		p.skipWS()
 		if p.pos >= len(p.src) {
 			return Undefined(), p.unexpected()
@@ -799,7 +843,10 @@ func (p *jsonParser) array() (Value, error) {
 		}
 		return Undefined(), p.unexpected()
 	}
-	a := p.r.newJSONArray(p.stack[base:])
+	a, err := p.r.newJSONArray(p.stack[base:])
+	if err != nil {
+		return Undefined(), err
+	}
 	clear(p.stack[base:])
 	p.stack = p.stack[:base]
 	p.depth--
@@ -815,7 +862,11 @@ func (p *jsonParser) array() (Value, error) {
 // levels count as a call, since a toJSON method can start another stringify.
 func (r *Realm) JSONStringify(v Value) (*String, error) {
 	js := jsonStringifier{r: r}
-	js.sb.Grow(max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8))
+	hint := max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8)
+	if err := r.charge(int64(hint)); err != nil {
+		return nil, err
+	}
+	js.sb.Grow(hint)
 	if ok, err := js.serialize(v); !ok {
 		return nil, err
 	}
@@ -863,7 +914,11 @@ func jsonStringify(r *Realm, this Value, args []Value) (Value, error) {
 			js.gap = s.Substring(0, min(10, s.Len()))
 		}
 	}
-	js.sb.Grow(max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8))
+	hint := max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8)
+	if err := r.charge(int64(hint)); err != nil {
+		return Undefined(), err
+	}
+	js.sb.Grow(hint)
 	var root *Object
 	if js.replacerFn.IsObject() {
 		root = r.NewObject()
@@ -903,6 +958,7 @@ type jsonStringifier struct {
 	stackBuf     [16]*Object
 	deep         map[*Object]struct{} // stack[jsonScanDepth:], for the cycle check
 	work         int
+	noted        int64 // builder bytes already charged against the alloc budget
 }
 
 // setPropertyList implements the replacer-array branch of JSON.stringify.
@@ -978,7 +1034,9 @@ func (js *jsonStringifier) resolve(v Value, key PropertyKey, holder *Object) (Va
 	if v.IsObject() && r.lacksToJSON(v.AsObject(), &js.plainEpoch) {
 		// No toJSON to call.
 	} else if v.IsObject() || v.IsBigInt() {
-		js.own() // the lookup (a getter, a proxy's trap) and toJSON run code
+		if err := js.own(); err != nil { // the lookup (a getter, a proxy's trap) and toJSON run code
+			return Undefined(), err
+		}
 		toJSON, err := r.GetV(v, StringKey(AtomToJSON))
 		if err != nil {
 			return Undefined(), err
@@ -1062,10 +1120,35 @@ func (js *jsonStringifier) write(v Value) (bool, error) {
 
 // tick counts one unit of work, a value written or a property visited and
 // skipped, and checks the length and the interrupt every 4096.
+// A result limit or an allocation budget, when one is set, is checked on
+// every tick so a repeated reference cannot emit an unbounded string.
 func (js *jsonStringifier) tick() error {
 	js.work++
+	if js.r.allocMax > 0 || js.r.resultMax != 0 {
+		if err := js.boundOutput(); err != nil {
+			return err
+		}
+	}
 	if js.work&4095 == 0 {
 		return js.checkpoint()
+	}
+	return nil
+}
+
+// boundOutput stops a stringify whose text exceeds the result limit, without
+// interrupting, or whose builder exceeds the allocation budget.
+func (js *jsonStringifier) boundOutput() error {
+	n := int64(js.sb.Len())
+	if js.r.resultMax > 0 && n > js.r.resultMax {
+		js.r.resultUsed = n
+		return ErrResultTooLarge
+	}
+	if js.r.allocMax > 0 && n > js.noted {
+		delta := n - js.noted
+		js.noted = n
+		if err := js.r.charge(delta); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1216,7 +1299,9 @@ func (js *jsonStringifier) object(o *Object) error {
 			if o.shape == shape && p.attrs&attrAccessor == 0 {
 				v = o.slots[i]
 			} else {
-				js.own() // a getter
+				if err := js.own(); err != nil { // a getter
+					return err
+				}
 				var err error
 				if v, err = o.Get(r, p.key, ObjectValue(o)); err != nil {
 					return err
@@ -1263,7 +1348,9 @@ func (js *jsonStringifier) object(o *Object) error {
 			if c, ok := o.getOwnCell(k); ok && c.attrs&attrAccessor == 0 {
 				v = c.value
 			} else {
-				js.own() // a getter, a proxy's trap
+				if err := js.own(); err != nil { // a getter, a proxy's trap
+					return err
+				}
 				var err error
 				if v, err = o.Get(r, k, ObjectValue(o)); err != nil {
 					return err
@@ -1359,7 +1446,9 @@ func (js *jsonStringifier) array(o *Object) error {
 		if i < int64(len(o.elements)) && !o.elements[i].IsHole() {
 			v = o.elements[i]
 		} else {
-			js.own() // a getter, of the element or a prototype's, a proxy's trap
+			if err = js.own(); err != nil { // a getter, of the element or a prototype's, a proxy's trap
+				return err
+			}
 			if v, err = o.Get(r, IndexKey(uint32(i)), ObjectValue(o)); err != nil {
 				return err
 			}

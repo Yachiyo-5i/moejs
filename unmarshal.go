@@ -70,6 +70,9 @@ func (rt *Runtime) ToGoInto(v Value, target any) error {
 	if rt.realm.ToGoInto(v, target) {
 		return nil
 	}
+	if rt.realm.ResultTooLarge() {
+		return ErrResultTooLarge
+	}
 	g, err := rt.ToGo(v)
 	if err != nil {
 		return err

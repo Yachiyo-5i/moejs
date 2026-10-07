@@ -520,6 +520,9 @@ func (r *Realm) decodeUTF8(d *textDecoder, in []byte, stream bool) (*String, err
 			if n == 0 {
 				return emptyString, nil
 			}
+			if err := r.charge(int64(n) + allocStringHdr); err != nil {
+				return nil, err
+			}
 			s, dst := newASCIIBuf(n)
 			if err := r.copyBytes(dst, in); err != nil {
 				return nil, err
@@ -533,7 +536,11 @@ func (r *Realm) decodeUTF8(d *textDecoder, in []byte, stream bool) (*String, err
 	// 2 units more than its bytes (the sequence it ends in may run 3 bytes
 	// past it), so bounded by the room left, the check after it throws
 	// before a store can run past u. k counts the units stored.
-	u, k := make([]uint16, min(len(in), maxStringLength+1)+4), n
+	nunits := min(len(in), maxStringLength+1) + 4
+	if err := r.charge(int64(nunits)*2 + allocStringHdr); err != nil {
+		return nil, err
+	}
+	u, k := make([]uint16, nunits), n
 	for i := 0; i < n; {
 		end := min(n, i+copyBytesChunk)
 		for j, b := range in[i:end] {

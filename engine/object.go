@@ -285,7 +285,25 @@ func (o *Object) debugString() string {
 
 // newObject allocates an object with the given shape. During realm bootstrap
 // objects come from a slab to keep allocation counts low.
+//
+// allocMax == 0 is the common path: bootstrap is finished and no budget is
+// set. That path is a single compare plus the allocation, and it stays under
+// the inliner budget (two compares, or a call to the slow path inlined into
+// this function, do not). Bootstrap leaves allocMax negative so it still
+// reaches the slab; a positive budget reaches the charge.
 func (r *Realm) newObject(class Class, shape *Shape) *Object {
+	if r.allocMax == 0 {
+		return &Object{shape: shape, proto: shape.proto, class: class, flags: flagExtensible}
+	}
+	return r.newObjectSlow(class, shape)
+}
+
+//go:noinline
+func (r *Realm) newObjectSlow(class Class, shape *Shape) *Object {
+	// One object is a constant-size allocation. A budget overrun is published
+	// here and observed at the next interrupt check; skipping the allocation
+	// would hand callers a nil object.
+	r.chargeNote(allocObjectBase)
 	var o *Object
 	if b := r.boot; b != nil && len(b.objs) < cap(b.objs) {
 		n := len(b.objs)
@@ -339,6 +357,13 @@ type object8 struct {
 // gets room for four properties because it is almost always assigned to
 // afterwards.
 func (r *Realm) NewObjectCap(n int) *Object {
+	slots := n
+	if slots < 4 {
+		slots = 4
+	}
+	if err := r.charge(allocObjectBase + int64(slots)*allocValue); err != nil {
+		return r.newObject(ClassObject, r.plainRoot)
+	}
 	var o *Object
 	switch {
 	case n <= 2 && n > 0:
@@ -406,12 +431,22 @@ func (o *Object) lookupNamed(key PropertyKey) (*Value, uint8, bool) {
 func (o *Object) addNamed(r *Realm, key PropertyKey, cell propCell) {
 	if o.flags&flagDict == 0 {
 		if o.shape.count < maxShapeProps {
+			if len(o.slots) == cap(o.slots) {
+				if r.chargeSliceGrow(cap(o.slots), len(o.slots)+1) != nil {
+					return
+				}
+			}
 			o.shape = o.shape.addProperty(r, key, cell.attrs)
 			o.slots = append(o.slots, cell.value)
 			r.bumpEpoch(o)
 			return
 		}
-		o.toDictionary(r)
+		if !o.toDictionary(r) {
+			return
+		}
+	}
+	if r.charge(allocMapEntry) != nil {
+		return
 	}
 	o.dict.add(key, cell)
 	r.bumpEpoch(o)
@@ -446,19 +481,29 @@ func (o *Object) removeNamed(r *Realm, key PropertyKey) {
 			r.bumpEpoch(o)
 			return
 		}
-		o.toDictionary(r)
+		if !o.toDictionary(r) {
+			return
+		}
 	}
 	o.dict.remove(key)
 	r.bumpEpoch(o)
 }
 
 // toDictionary moves named properties into the dictionary and points the
-// shape at the realm's sentinel so inline caches always miss.
-func (o *Object) toDictionary(r *Realm) {
+// shape at the realm's sentinel so inline caches always miss. It reports
+// false when the allocation budget refuses the dictionary, having changed
+// nothing.
+func (o *Object) toDictionary(r *Realm) bool {
+	if o.flags&flagDict != 0 {
+		return true
+	}
+	props := o.shape.Props()
+	if r.charge(int64(len(props)+8)*allocMapEntry) != nil {
+		return false
+	}
 	if o.dict == nil {
 		o.dict = &dictProps{}
 	}
-	props := o.shape.Props()
 	o.dict.index = make(map[PropertyKey]int32, len(props)+8)
 	o.dict.entries = make([]dictEntry, 0, len(props)+8)
 	for i, p := range props {
@@ -467,6 +512,7 @@ func (o *Object) toDictionary(r *Realm) {
 	o.shape = dictShape
 	o.slots = nil
 	o.flags |= flagDict
+	return true
 }
 
 // --- indexed property storage ---------------------------------------------------
@@ -529,9 +575,18 @@ func (o *Object) addIndex(r *Realm, i uint32, cell propCell) {
 		case int(i) < n:
 			o.elements[i] = cell.value
 		case int(i) == n:
+			if len(o.elements) == cap(o.elements) {
+				if r.chargeSliceGrow(cap(o.elements), len(o.elements)+1) != nil {
+					return
+				}
+			}
 			o.elements = append(o.elements, cell.value)
 		default:
-			o.elements = growWithHoles(o.elements, int(i)+1)
+			els, err := r.growElements(o.elements, int(i)+1)
+			if err != nil {
+				return
+			}
+			o.elements = els
 			o.elements[i] = cell.value
 		}
 		r.bumpEpoch(o)

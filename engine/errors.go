@@ -176,6 +176,14 @@ func (e *InterruptedError) Error() string {
 	return "interrupted: " + fmt.Sprint(e.Value)
 }
 
+// Unwrap returns Value when it is an error, so errors.Is(err, ErrAllocLimit)
+// matches an allocation-budget interrupt without a type assertion. A
+// non-error payload unwraps to nil.
+func (e *InterruptedError) Unwrap() error {
+	err, _ := e.Value.(error)
+	return err
+}
+
 // Throw wraps a JavaScript value as an error.
 func (r *Realm) Throw(v Value) error { return &Exception{Value: v} }
 

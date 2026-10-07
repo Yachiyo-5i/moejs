@@ -348,6 +348,7 @@ func jsonNumberValue(n json.Number) (Value, error) {
 // Getters and traps that throw yield nil; use ToGoStrict to observe the
 // error.
 func (r *Realm) ToGo(v Value) any {
+	r.resetResult()
 	var st toGoState
 	out, _ := r.toGo(v, &st)
 	return out
@@ -357,6 +358,7 @@ func (r *Realm) ToGo(v Value) any {
 // property (a throwing getter, or an interrupt observed while one runs) and
 // returns it instead of a partial result.
 func (r *Realm) ToGoStrict(v Value) (any, error) {
+	r.resetResult()
 	st := toGoState{strict: true}
 	return r.toGo(v, &st)
 }
@@ -412,9 +414,17 @@ func (r *Realm) toGo(v Value, st *toGoState) (any, error) {
 		}
 		return f, nil
 	case TypeString:
-		return v.AsString().GoString(), nil
+		s := v.AsString()
+		if err := r.chargeResult(int64(s.Len()) + allocStringHdr); err != nil {
+			return nil, err
+		}
+		return s.GoString(), nil
 	case TypeBigInt:
-		return v.AsBigInt().Big(), nil
+		bi := v.AsBigInt()
+		if err := r.chargeResult(allocBigIntBase + int64(len(bi.v.Bits()))*allocBigIntWord); err != nil {
+			return nil, err
+		}
+		return bi.Big(), nil
 	case TypeSymbol:
 		return v.AsSymbol(), nil
 	}
@@ -458,6 +468,9 @@ func (r *Realm) collectionToGo(o *Object, c *collection, st *toGoState) (any, er
 	n := c.size()
 	cur := c.cursor()
 	if o.class == ClassSet {
+		if err := r.chargeResult(int64(n) * 16); err != nil {
+			return nil, err
+		}
 		items := make([]any, n)
 		var out any = items
 		st.add(o, out)
@@ -472,6 +485,9 @@ func (r *Realm) collectionToGo(o *Object, c *collection, st *toGoState) (any, er
 			}
 		}
 		return out, nil
+	}
+	if err := r.chargeResult(int64(n) * 32); err != nil {
+		return nil, err
 	}
 	items := make([][2]any, n)
 	var out any = items
@@ -496,6 +512,9 @@ func (r *Realm) collectionToGo(o *Object, c *collection, st *toGoState) (any, er
 func (r *Realm) toGoContainer(o *Object, v Value, st *toGoState) (any, error) {
 	if o.class == ClassArray {
 		n := int(o.ArrayLength())
+		if err := r.chargeResult(int64(n) * 16); err != nil {
+			return nil, err
+		}
 		items := make([]any, n)
 		var out any = items // boxed once: stored for cycle detection and returned
 		st.add(o, out)
@@ -531,6 +550,9 @@ func (r *Realm) toGoContainer(o *Object, v Value, st *toGoState) (any, error) {
 				n++
 			}
 		}
+		if err := r.chargeResult(int64(n) * 48); err != nil {
+			return nil, err
+		}
 		out := make(map[string]any, n)
 		st.add(o, out)
 		for i := range props {
@@ -558,6 +580,9 @@ func (r *Realm) toGoContainer(o *Object, v Value, st *toGoState) (any, error) {
 		return out, nil
 	}
 	if data, ok := o.BufferData(); ok {
+		if err := r.chargeResult(allocBufferBase + int64(len(data))); err != nil {
+			return nil, err
+		}
 		out := any(slices.Clone(data))
 		st.add(o, out)
 		return out, nil
@@ -568,6 +593,9 @@ func (r *Realm) toGoContainer(o *Object, v Value, st *toGoState) (any, error) {
 			return nil, err
 		}
 		return nil, nil
+	}
+	if err := r.chargeResult(int64(len(keys)) * 48); err != nil {
+		return nil, err
 	}
 	out := make(map[string]any, len(keys))
 	st.add(o, out)

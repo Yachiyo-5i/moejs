@@ -384,7 +384,11 @@ func (r *Realm) enterModuleFrame(fn *Object) (Value, error) {
 	base := st.sp
 	top := base + int(code.NumRegs)
 	if top > len(st.stack) {
-		r.growStack(top)
+		if r.allocMax <= 0 {
+			r.growStackFast(top)
+		} else {
+			r.growStackLimited(top)
+		}
 	}
 	fi := st.nframes
 	if fi == len(st.frames) {

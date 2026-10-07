@@ -80,7 +80,8 @@ These run, with a result that differs from the specification:
 
 - `ParseJSON` straight from the bytes (it copies them into a string first)
 - Source maps
-- A per-realm heap or allocation budget, which would also bound what a
-  result costs the host: a value that repeats one object many times, whose
-  text and `Unmarshal` copies are as large as if it did not, and the buffer
-  `AppendJSON` reserves from its last output
+- The allocation budget is an estimate of bytes allocated during one call,
+  not a cap on the live heap: it ignores what the GC frees, and
+  `MaxResultBytes` is a separate bound on one host export. A stack-depth
+  limit and a CPU-time limit are still open. `AppendJSON` can still reserve
+  its buffer from the previous output's length when no budget is set.

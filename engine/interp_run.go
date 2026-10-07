@@ -128,13 +128,13 @@ func (r *Realm) run(fi int, fd *FunctionData, base int, env *Env, this Value, ca
 			e.slots[insns[pc]] = regs[a]
 			pc++
 		case bytecode.PushEnv:
-			env = newEnvSized(env, int(w>>16))
+			env = r.envSized(env, int(w>>16))
 			envDepth++
 		case bytecode.PopEnv:
 			env = env.parent
 			envDepth--
 		case bytecode.CopyEnv:
-			ne := newEnvSized(env.parent, len(env.slots))
+			ne := r.envSized(env.parent, len(env.slots))
 			copy(ne.slots, env.slots)
 			env = ne
 		case bytecode.CheckTDZ:
@@ -420,9 +420,7 @@ func (r *Realm) run(fi int, fd *FunctionData, base int, env *Env, this Value, ca
 			arr := regs[a].AsObject()
 			arr.Push(r, regs[uint8(w>>16)])
 		case bytecode.ArrayHole:
-			arr := regs[a].AsObject()
-			arr.elements = growWithHoles(arr.elements, len(arr.elements)+1)
-			arr.internal.(*ArrayData).length = uint32(len(arr.elements))
+			err = r.pushArrayHole(regs[a].AsObject())
 		case bytecode.AppendSpread:
 			err = r.appendSpread(regs[a].AsObject(), regs[uint8(w>>16)])
 			regs, fr = st.stack[base:top:top], &st.frames[fi]

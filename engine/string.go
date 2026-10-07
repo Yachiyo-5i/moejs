@@ -283,6 +283,20 @@ func (r *Realm) Concat(a, b *String) (*String, error) {
 	if n > maxStringLength {
 		return nil, r.invalidStringLength()
 	}
+	// Charge the logical length before allocating. A rope is charged for the
+	// bytes flatten would need (1 per ASCII unit, 2 when either side is not
+	// a flat ASCII string) plus the node, so `s = s + s` hits the budget
+	// while the live heap is still the nodes. flatten does not charge again.
+	cost := int64(n) + allocStringHdr
+	if a.kind != strASCII || b.kind != strASCII {
+		cost = int64(n)*2 + allocStringHdr
+	}
+	if n >= ropeThreshold {
+		cost += allocRopeNode
+	}
+	if err := r.charge(cost); err != nil {
+		return nil, err
+	}
 	if n >= ropeThreshold {
 		return &String{left: a, right: b, n: int32(n), kind: strRope}, nil
 	}

@@ -131,6 +131,9 @@ func (r *Realm) allocateBuffer(newTarget, ctor, defaultProto *Object, class Clas
 	if length > maxBufferLength || maxLen > maxBufferLength {
 		return nil, r.RangeError("Array buffer allocation failed")
 	}
+	if err := r.charge(allocBufferBase + length); err != nil {
+		return nil, err
+	}
 	return r.newBufferObject(proto, class, newBytes(int(length), int(length)), int(maxLen)), nil
 }
 
@@ -250,6 +253,9 @@ func (r *Realm) resizeBytes(data []byte, n, maxLen int) ([]byte, error) {
 	size := n
 	if maxLen >= 0 && n > c {
 		size = min(max(n, 2*c), maxLen)
+	}
+	if err := r.charge(allocBufferBase + int64(size)); err != nil {
+		return nil, err
 	}
 	moved := newBytes(n, size)
 	if err := r.copyBytes(moved, data); err != nil {

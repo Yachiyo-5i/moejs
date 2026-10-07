@@ -49,6 +49,7 @@ func (*Script) referrer() {}
 // RunScript returns. A throw is an *Exception, an interrupt an
 // *InterruptedError.
 func (rt *Runtime) RunScript(s *Script) (res Value, err error) {
+	rt.beginAlloc()
 	r := rt.realm
 	defer func() {
 		if err != nil {

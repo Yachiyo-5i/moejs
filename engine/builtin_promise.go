@@ -290,7 +290,11 @@ func (r *Realm) callStack(fn *Object, this Value, args ...Value) (Value, error) 
 	st := &r.interp
 	sp, n := st.sp, len(args)
 	if sp+n > len(st.stack) {
-		r.growStack(sp + n)
+		if r.allocMax <= 0 {
+			r.growStackFast(sp + n)
+		} else {
+			r.growStackLimited(sp + n)
+		}
 	}
 	copy(st.stack[sp:], args)
 	st.sp = sp + n

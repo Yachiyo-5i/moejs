@@ -247,8 +247,13 @@ func (js *jsonStringifier) serialize(v Value) (ok bool, err error) {
 // function that code calls may use dst: it is appended to when AppendJSON
 // returns, as append(dst, text...) would.
 func (r *Realm) AppendJSON(dst []byte, v Value) ([]byte, bool, error) {
+	r.resetResult()
 	js := jsonStringifier{r: r, raw: true}
-	out := slices.Grow(dst, max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8))
+	hint := max(256, int(r.jsonSizeHint)+int(r.jsonSizeHint)/8)
+	if err := r.charge(int64(hint)); err != nil {
+		return dst, false, err
+	}
+	out := slices.Grow(dst, hint)
 	js.sb.b = out[len(out):]
 	js.inDst = unsafe.SliceData(out) == unsafe.SliceData(dst)
 	if ok, err := js.serialize(v); !ok {
@@ -283,13 +288,21 @@ func (r *Realm) JobsPending() bool { return r.jobsPending }
 // largest result it ever held, nor the last output's length (jsonSizeHint),
 // which a host alternating large and small results makes just as large,
 // says anything about this output.
-func (js *jsonStringifier) own() {
+func (js *jsonStringifier) own() error {
 	if js.inDst {
+		n := ownCap(len(js.sb.b))
+		// A growth past 256 KiB that the budget refuses is not allocated.
+		// Leaving the output in dst and running host code would let that
+		// code observe a buffer the call is about to abandon.
+		if err := js.r.charge(int64(n)); err != nil && n > 256<<10 {
+			return err
+		}
 		js.inDst = false
-		b := make([]byte, len(js.sb.b), ownCap(len(js.sb.b)))
+		b := make([]byte, len(js.sb.b), n)
 		copy(b, js.sb.b)
 		js.sb.b = b
 	}
+	return nil
 }
 
 // ownCap sizes own's buffer: twice the bytes written so far, at least 256.

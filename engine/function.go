@@ -477,6 +477,7 @@ func appendArgs(bound, args []Value) []Value {
 // newFunctionObject allocates a function object with the realm's shared
 // function shape (length, name) and room for a third property.
 func (r *Realm) newFunctionObject(name *String, length int, kind FuncKind) (*Object, *FunctionData) {
+	r.chargeNote(allocFuncObject)
 	fo := &funcObject{}
 	r.initFunction(&fo.obj, &fo.fd, fo.slots[:2:3], name, length, kind)
 	return &fo.obj, &fo.fd
@@ -492,6 +493,7 @@ func (r *Realm) newNativeFunctionObject(name *String, length int, kind FuncKind)
 		b.funcs = b.funcs[:n+1]
 		fo = &b.funcs[n]
 	} else {
+		r.chargeNote(allocFuncObject)
 		fo = &nativeFuncObject{}
 	}
 	r.initFunction(&fo.obj, &fo.fd, fo.slots[:], name, length, kind)

@@ -28,6 +28,16 @@
 
 没有代码运行时到达的中断会停止下一次调用，所以宿主复用运行时之前要调用 `ClearInterrupt`。
 
+### 分配预算
+
+`Options.MaxAllocBytes` 估算一次 `Call`、`Load` 或 `RunScript` 分配的字节数，包括返回前执行的 Promise 任务。每次调用从零开始累加，只增不减。零是默认值，表示不设预算。
+
+这个估算不是存活堆。它不把垃圾回收释放的内存记回来，并且对分配向上取整。一次调用即将超过预算时，运行时以 `*AllocLimitError` 中断，调用返回 `*InterruptedError`。`errors.Is(err, ErrAllocLimit)` 可以识别它。脚本接不住这次中断：`catch` 和 `finally` 都不会执行。`ClearInterrupt` 之后，同一个运行时可以继续用。
+
+`SetMaxAllocBytes` 修改下一次调用使用的预算。`AllocatedBytes` 返回当前或上一次调用已经记账的字节数。
+
+`Options.MaxResultBytes` 是另设的上限，约束 `ToGo`、`Unmarshal`、`ToGoInto` 和 `AppendJSON` 从同一个值产生的结果。超过它返回 `ErrResultTooLarge`，不中断运行时。零表示不设上限。一个很小、但把同一个对象重复很多次的值，转成 Go 值或 JSON 时会变大，这个上限用来拦住它。
+
 ### 对象属于一个运行时
 
 运行时里的 JavaScript 创建的对象属于这个运行时。使用另一个运行时的对象可能运行那个运行时的代码，所以运行时之间只传 Go 值和 JSON。

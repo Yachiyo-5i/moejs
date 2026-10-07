@@ -34,6 +34,18 @@ type Options struct {
 	// for hosts whose code needs none (engine.RealmOptions). Compile and
 	// CompileScript are not affected.
 	DisableDynamicCode bool
+	// MaxAllocBytes is the allocation budget, in estimated bytes, of one Call,
+	// Load or RunScript, including the promise jobs they run before returning.
+	// The count only grows during the call and starts again at zero on the next
+	// one. When a step would exceed it, the runtime is interrupted with an
+	// *AllocLimitError and the call returns *InterruptedError. Zero means no
+	// budget. The estimate is not the live heap: it ignores what the GC frees.
+	MaxAllocBytes int64
+	// MaxResultBytes bounds what ToGo, Unmarshal, ToGoInto and AppendJSON
+	// produce from one value, in estimated bytes of the Go result or JSON text.
+	// Exceeding it returns ErrResultTooLarge; the runtime is not interrupted.
+	// Zero means no bound.
+	MaxResultBytes int64
 }
 
 // Runtime is one JavaScript global environment with at most one loaded
@@ -64,15 +76,55 @@ type Runtime struct {
 	// caller's variadic slice does not escape and a call allocates nothing
 	// for its arguments once the stack has grown.
 	argStack []Value
+	// maxAlloc is the budget beginAlloc installs on the next Call, Load or
+	// RunScript. SetMaxAllocBytes updates it without touching a call that
+	// is already running.
+	maxAlloc int64
 }
 
 // NewRuntime creates a runtime.
 func NewRuntime(opts Options) *Runtime {
-	rt := &Runtime{realm: engine.NewRealmWith(engine.RealmOptions{SharedIntrinsics: !opts.MutableIntrinsics, TimeZone: opts.TimeZone, MaxDynamicSource: opts.MaxDynamicSource, DisableDynamicCode: opts.DisableDynamicCode})}
+	maxAlloc := opts.MaxAllocBytes
+	if maxAlloc < 0 {
+		maxAlloc = 0
+	}
+	rt := &Runtime{
+		realm: engine.NewRealmWith(engine.RealmOptions{
+			SharedIntrinsics:   !opts.MutableIntrinsics,
+			TimeZone:           opts.TimeZone,
+			MaxDynamicSource:   opts.MaxDynamicSource,
+			DisableDynamicCode: opts.DisableDynamicCode,
+			MaxResultBytes:     opts.MaxResultBytes,
+		}),
+		maxAlloc: maxAlloc,
+	}
 	if opts.Importer != nil {
 		rt.realm.SetImportHooks(opts.Importer.engineHooks())
 	}
 	return rt
+}
+
+// SetMaxAllocBytes sets the allocation budget used by the next Call, Load
+// or RunScript. It does not change a call that is already running. A
+// negative value means no budget.
+func (rt *Runtime) SetMaxAllocBytes(n int64) {
+	if n < 0 {
+		n = 0
+	}
+	rt.maxAlloc = n
+}
+
+// AllocatedBytes returns the bytes charged for the current or previous
+// Call, Load or RunScript.
+func (rt *Runtime) AllocatedBytes() int64 { return rt.realm.AllocatedBytes() }
+
+// beginAlloc starts the allocation budget of one Call, Load or RunScript.
+func (rt *Runtime) beginAlloc() {
+	n := rt.maxAlloc
+	if n < 0 {
+		n = 0
+	}
+	rt.realm.SetAllocBudget(n)
 }
 
 // Realm returns the runtime's engine state, for host functions and tests
@@ -125,6 +177,7 @@ func (rt *Runtime) Function(name string, length int, fn NativeFunc) Value {
 // function called while it awaits throws a ReferenceError for a binding it
 // has not initialized yet.
 func (rt *Runtime) Load(m *Module) (err error) {
+	rt.beginAlloc()
 	if rt.mod != nil {
 		return errors.New("moejs: runtime already loaded module " + rt.mod.name)
 	}
@@ -263,6 +316,7 @@ func (rt *Runtime) Has(h Hook) (ok bool, err error) {
 // failed return Load's error. An argument that is a function or generator
 // of another runtime is ErrForeign.
 func (rt *Runtime) Call(h Hook, args ...Value) (res Value, err error) {
+	rt.beginAlloc()
 	r := rt.realm
 	base := len(rt.argStack)
 	defer rt.guard(&err, r.CallState(), base)

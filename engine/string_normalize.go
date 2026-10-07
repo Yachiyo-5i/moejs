@@ -346,7 +346,11 @@ func (t *normTables) composeInPlace(seg []uint32) []uint32 {
 // normalize returns the code units of u in form f; the length is limited to
 // maxStringLength.
 func (t *normTables) normalize(r *Realm, u []uint16, f normForm) ([]uint16, error) {
-	z := normalizer{t: t, form: f, out: make([]uint16, 0, len(u)+len(u)/8)}
+	need := len(u) + len(u)/8
+	if err := r.charge(int64(need)*2 + allocStringHdr); err != nil {
+		return nil, err
+	}
+	z := normalizer{t: t, form: f, out: make([]uint16, 0, need)}
 	var buf [8]uint32
 	z.seg = buf[:0]
 	df := f | 1 // the decomposition of NFC is NFD's, of NFKC NFKD's

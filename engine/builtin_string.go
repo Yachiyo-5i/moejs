@@ -844,6 +844,13 @@ func repeatString(r *Realm, s *String, count int) (*String, error) {
 		s.flatten()
 	}
 	total := s.Len() * count
+	cost := int64(total) + allocStringHdr
+	if s.kind == strUTF16 {
+		cost = int64(total)*2 + allocStringHdr
+	}
+	if err := r.charge(cost); err != nil {
+		return nil, err
+	}
 	if total <= 1<<16 {
 		if s.kind == strASCII {
 			return asciiString(strings.Repeat(s.s, count)), nil
@@ -912,6 +919,13 @@ func stringPad(r *Realm, this Value, args []Value, atStart bool) (Value, error) 
 	}
 	if maxLen > int64(maxStringLength) {
 		return Undefined(), r.invalidStringLength()
+	}
+	cost := maxLen + int64(allocStringHdr)
+	if s.kind == strUTF16 || filler.kind == strUTF16 {
+		cost = maxLen*2 + int64(allocStringHdr)
+	}
+	if err = r.charge(cost); err != nil {
+		return Undefined(), err
 	}
 	fillLen := int(maxLen) - n
 	var sb StringBuilder
@@ -1089,6 +1103,9 @@ func stringProtoSplit(r *Realm, this Value, args []Value) (Value, error) {
 	}
 	if sep.Len() == 0 {
 		count := min(n, int(lim))
+		if err := r.charge(allocObjectBase + int64(count)*allocValue); err != nil {
+			return Undefined(), err
+		}
 		items := make([]Value, count)
 		for i := range items {
 			items[i] = StringValue(charString(s.At(i)))
@@ -1116,6 +1133,9 @@ func splitByString(r *Realm, s, sep *String, lim uint32) (*Object, error) {
 		count := strings.Count(str, sp) + 1
 		if uint32(count) > lim {
 			count = int(lim)
+		}
+		if err := r.charge(allocObjectBase + int64(count)*allocValue*2); err != nil {
+			return nil, err
 		}
 		items := make([]Value, count)
 		pieces := make([]String, count) // one allocation for every piece

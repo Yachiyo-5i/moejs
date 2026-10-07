@@ -282,7 +282,11 @@ func (c *cloner) clone(v Value) (Value, error) {
 		}
 		var coll *collection
 		dst, coll = r.newCollectionObject(proto, o.class)
-		frame = cloneFrame{coll: coll, isMap: o.class == ClassMap, items: collectionSnapshot(src, o.class == ClassMap)}
+		items, err := collectionSnapshot(r, src, o.class == ClassMap)
+		if err != nil {
+			return Undefined(), err
+		}
+		frame = cloneFrame{coll: coll, isMap: o.class == ClassMap, items: items}
 	case ClassError:
 		if o.ErrorData() == nil {
 			return Undefined(), c.uncloneable(v)
@@ -390,13 +394,16 @@ func (c *cloner) cloneBinary(o *Object) (*Object, error) {
 // collectionSnapshot copies a Map's live entries as key, value pairs or a
 // Set's as keys (the spec's copiedList: entries added while the clone runs
 // are not visited).
-func collectionSnapshot(src *collection, isMap bool) []Value {
+func collectionSnapshot(r *Realm, src *collection, isMap bool) ([]Value, error) {
 	if src.size() == 0 {
-		return nil
+		return nil, nil
 	}
 	n := src.size()
 	if isMap {
 		n *= 2
+	}
+	if err := r.charge(int64(n) * allocValue); err != nil {
+		return nil, err
 	}
 	items := make([]Value, 0, n)
 	for i := range src.t.entries {
@@ -409,7 +416,7 @@ func collectionSnapshot(src *collection, isMap bool) []Value {
 			items = append(items, e.value)
 		}
 	}
-	return items
+	return items, nil
 }
 
 // cloneError copies an Error: its name picks one of the native error

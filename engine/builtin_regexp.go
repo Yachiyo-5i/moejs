@@ -567,6 +567,12 @@ func (c *compiledRegExp) findAll(r *Realm, sub *reSubject) ([][]int, error) {
 	}
 	sticky := c.flags.sticky
 	if !c.tr.minLen0 && !sticky && len(sub.text) <= regexpUninterruptedLimit && !c.useBT(sub) {
+		if r.allocMax > 0 {
+			per := int64(max(c.ngroups(), 1)*16 + 32)
+			if err := r.charge(per * int64(len(sub.text)+1)); err != nil {
+				return nil, err
+			}
+		}
 		return c.re.FindAllSubmatchIndex(sub.text, -1), nil
 	}
 	var out [][]int
@@ -578,6 +584,16 @@ func (c *compiledRegExp) findAll(r *Realm, sub *reSubject) ([][]int, error) {
 		}
 		if m == nil {
 			break
+		}
+		if r.allocMax > 0 {
+			if err := r.charge(48); err != nil {
+				return nil, err
+			}
+			if len(out) == cap(out) {
+				if err := r.charge(int64(nextSliceCap(cap(out), len(out)+1)) * 32); err != nil {
+					return nil, err
+				}
+			}
 		}
 		out = append(out, m)
 		if m[1] == m[0] {
@@ -760,6 +776,12 @@ type execResultObject struct {
 func (r *Realm) regexpExecResult(d *RegExpData, s *String, m []int) *Object {
 	st := r.regexpState()
 	n := d.c.ngroups()
+	// One exec result is a small array plus index, input and groups. A
+	// pattern with many groups charges its element storage before the make.
+	r.chargeNote(allocExecResult)
+	if n > 8 && r.charge(int64(n+1)*allocValue) != nil {
+		return r.NewArrayLen(0)
+	}
 	items := make([]Value, n+1)
 	for i := range items {
 		if m[2*i] < 0 {
@@ -1452,7 +1474,9 @@ func regexpReplace(r *Realm, rx *Object, d *RegExpData, s *String, replaceValue 
 			if err := r.CheckInterrupt(); err != nil {
 				return Undefined(), err
 			}
-			if res, ok := regexpReplaceFast(d.c, &sub, tmpl); ok {
+			if res, ok, err := regexpReplaceFast(r, d.c, &sub, tmpl); err != nil {
+				return Undefined(), err
+			} else if ok {
 				if res != s {
 					r.noteMatch(d, s, d.c, matchedLast)
 				}
@@ -1487,6 +1511,13 @@ func regexpReplace(r *Realm, rx *Object, d *RegExpData, s *String, replaceValue 
 	// The program that found the matches: a replacer may recompile rx.
 	c := d.c
 	ngroups := c.ngroups()
+	cost := int64(s.Len()) + allocStringHdr
+	if s.kind != strASCII {
+		cost = int64(s.Len())*2 + allocStringHdr
+	}
+	if err := r.charge(cost); err != nil {
+		return Undefined(), err
+	}
 	var sb StringBuilder
 	sb.growFor(s, s.Len()+16)
 	next := 0
@@ -1580,6 +1611,13 @@ func (r *Realm) simpleReplace(rx *Object, d *RegExpData, s *String, replaceValue
 	} else {
 		r.noteMatch(d, s, d.c, 0)
 	}
+	cost := int64(s.Len()) + allocStringHdr
+	if s.kind != strASCII {
+		cost = int64(s.Len())*2 + allocStringHdr
+	}
+	if err := r.charge(cost); err != nil {
+		return Undefined(), err
+	}
 	var sb StringBuilder
 	sb.growFor(s, s.Len()+16)
 	next := 0
@@ -1627,13 +1665,56 @@ func (r *Realm) simpleReplace(rx *Object, d *RegExpData, s *String, replaceValue
 // the template uses $` or $' (no Go equivalent) or is not ASCII, or when
 // the result exceeds the string length limit; the generic path then raises
 // the RangeError as it builds.
-func regexpReplaceFast(c *compiledRegExp, sub *reSubject, tmpl *String) (*String, bool) {
+func regexpReplaceFast(r *Realm, c *compiledRegExp, sub *reSubject, tmpl *String) (*String, bool, error) {
 	t, ok := tmpl.ASCII()
 	if !ok && tmpl.Len() != 0 {
-		return nil, false
+		return nil, false, nil
 	}
 	if !c.re.Match(sub.text) {
-		return sub.s, true
+		return sub.s, true, nil
+	}
+	if r.allocMax > 0 {
+		repl := len(t)
+		if repl < 1 {
+			repl = 1
+		}
+		bound := int64(len(sub.text)) + allocStringHdr
+		if repl > 1 {
+			// Count matches without retaining them. The subject of this
+			// path is at most regexpUninterruptedLimit, so the scan is
+			// bounded; the result of a long replacement is not.
+			n := 0
+			rest := sub.text
+			for len(rest) > 0 || n == 0 {
+				loc := c.re.FindIndex(rest)
+				if loc == nil {
+					break
+				}
+				n++
+				if loc[1] <= 0 {
+					if len(rest) == 0 {
+						break
+					}
+					rest = rest[1:]
+					continue
+				}
+				rest = rest[loc[1]:]
+				if n > len(sub.text)+1 {
+					break
+				}
+			}
+			prod := int64(n) * int64(repl)
+			if prod/int64(repl) != int64(n) {
+				prod = int64(^uint64(0) >> 1)
+			}
+			bound = int64(len(sub.text)) + prod + allocStringHdr
+			if bound < 0 {
+				bound = int64(^uint64(0) >> 1)
+			}
+		}
+		if err := r.charge(bound); err != nil {
+			return nil, false, err
+		}
 	}
 	var b []byte
 	if strings.IndexByte(t, '$') < 0 {
@@ -1642,14 +1723,14 @@ func regexpReplaceFast(c *compiledRegExp, sub *reSubject, tmpl *String) (*String
 	} else {
 		goTmpl, ok := jsTemplateToGo(t, c)
 		if !ok {
-			return nil, false
+			return nil, false, nil
 		}
 		b = c.re.ReplaceAll(sub.text, goTmpl)
 	}
 	if len(b) > maxStringLength {
-		return nil, false
+		return nil, false, nil
 	}
-	return asciiString(bytesToString(b)), true
+	return asciiString(bytesToString(b)), true, nil
 }
 
 // jsTemplateToGo converts a JavaScript replacement template to Go's Expand

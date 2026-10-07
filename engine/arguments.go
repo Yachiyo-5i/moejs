@@ -44,7 +44,12 @@ func (r *Realm) newArguments(args []Value) *Object {
 	if n := len(args); n > 0 {
 		elems := x.elems[:0:len(x.elems)]
 		if n > len(x.elems) {
+			if r.charge(allocObjectBase+int64(n)*allocValue) != nil && n > 1024 {
+				return o
+			}
 			elems = make([]Value, 0, n)
+		} else {
+			r.chargeNote(allocObjectBase + int64(n)*allocValue)
 		}
 		o.elements = append(elems, args...)
 	}
