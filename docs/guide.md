@@ -54,8 +54,10 @@ collector frees, and it rounds allocations up. A call that would pass the
 budget is interrupted with `*AllocLimitError` and returns
 `*InterruptedError`. `errors.Is(err, ErrAllocLimit)` reports it. The script
 cannot catch that interrupt: `catch` and `finally` do not run. The overrun
-is returned from the call that caused it. Objects may be left half-updated,
-so discard the runtime; do not `ClearInterrupt` and reuse it.
+is returned from the call that caused it, in place of an exception the
+script throws afterwards, and a `ClearInterrupt` while the call runs does not
+cancel it. Objects may be left half-updated, so discard the runtime; do not
+`ClearInterrupt` and reuse it.
 
 `SetMaxAllocBytes` changes the budget used by the next outermost entry. It
 does not change a call that is already running.
